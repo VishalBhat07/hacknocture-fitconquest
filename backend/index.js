@@ -40,6 +40,10 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id} joined challenge ${challengeId}`);
   });
 
+  socket.on('start_challenge', async (challengeId) => {
+    io.to(challengeId).emit('challenge_started');
+  });
+
   socket.on('squat_performed', async ({ challengeId, teamId, userId, count }) => {
     // In a real app we would update the DB less frequently or queue it.
     // For this simulation, we'll update it here directly or broadcast to others.
@@ -53,11 +57,15 @@ io.on('connection', (socket) => {
           team.totalSquats += count;
           await challenge.save();
           
+          // Re-fetch challenge completely to ensure correct populating (or just proper format) for all clients
+          const updatedChallenge = await Challenge.findById(challengeId)
+                .populate('teams.members', 'username stats location');
+                
           // Broadcast to everyone in the room
           io.to(challengeId).emit('score_update', {
             challengeId,
-            teams: challenge.teams,
-            winnerTeam: challenge.winnerTeam
+            teams: updatedChallenge.teams,
+            winnerTeam: updatedChallenge.winnerTeam
           });
 
           // Also increment user squat

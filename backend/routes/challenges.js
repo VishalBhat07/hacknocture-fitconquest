@@ -48,4 +48,30 @@ router.post('/:id/join', async (req, res) => {
   }
 });
 
+router.post('/:id/start', async (req, res) => {
+  const { userId } = req.body;
+  try {
+    const challenge = await Challenge.findById(req.params.id);
+    if (!challenge) return res.status(404).json({ error: 'Not found' });
+    
+    if (challenge.host.toString() !== userId) {
+      return res.status(403).json({ error: 'Only the host can start the challenge' });
+    }
+    
+    // Require at least 1 user in each team
+    const redCount = challenge.teams[0].members.length;
+    const blueCount = challenge.teams[1].members.length;
+    
+    if (redCount === 0 || blueCount === 0) {
+      return res.status(400).json({ error: 'Need at least 1 player in each team to start' });
+    }
+    
+    challenge.status = 'active';
+    await challenge.save();
+    res.json(challenge);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
