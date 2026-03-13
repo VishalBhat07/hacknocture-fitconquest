@@ -1,239 +1,100 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface LeaderboardUser {
-    _id: string;
-    username: string;
-    stats: {
-        totalSquats: number;
-        challengesWon: number;
-    };
-    location: {
-        city?: string;
-        state?: string;
-        country?: string;
-    };
-}
-
-type TabType = "daily" | "weekly" | "monthly" | "global";
-
-const TABS: { key: TabType; label: string }[] = [
-    { key: "daily", label: "Daily" },
-    { key: "weekly", label: "Weekly" },
-    { key: "monthly", label: "Monthly" },
-    { key: "global", label: "Overall" },
-];
-
-const API_BASE =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-
-// ============================================================================
-// COMPONENT
-// ============================================================================
+import { useState, useMemo } from "react";
+import "../feature1.css";
+import { ActivityMode, getLeaderboardUsers, TimeFilter } from "../data/leaderboardData";
 
 export default function LeaderboardPanel() {
-    const [activeTab, setActiveTab] = useState<TabType>("daily");
-    const [users, setUsers] = useState<LeaderboardUser[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [mode, setMode] = useState<ActivityMode>("walk");
+    const [activeTab, setActiveTab] = useState<TimeFilter>("daily");
 
-    // ========================================================================
-    // FETCH LEADERBOARD
-    // ========================================================================
+    const users = useMemo(() => getLeaderboardUsers(mode, activeTab), [mode, activeTab]);
 
-    const fetchLeaderboard = useCallback(async (tab: TabType) => {
-        setLoading(true);
-        setError(null);
+    const stats = useMemo(() => {
+        const totalSquats = users.reduce((acc, u) => acc + u.squats, 0);
+        return {
+            participants: users.length,
+            totalSquats: totalSquats,
+        };
+    }, [users]);
 
-        try {
-            const res = await fetch(
-                `${API_BASE}/api/leaderboard?type=${tab}`
-            );
-
-            if (!res.ok) {
-                throw new Error(`Failed to fetch leaderboard (${res.status})`);
-            }
-
-            const data: LeaderboardUser[] = await res.json();
-            setUsers(data);
-        } catch (err: unknown) {
-            const message =
-                err instanceof Error ? err.message : "Unknown error";
-            console.error("Leaderboard fetch error:", message);
-            setError(message);
-            setUsers([]);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchLeaderboard(activeTab);
-    }, [activeTab, fetchLeaderboard]);
-
-    // Auto-refresh every 30s
-    useEffect(() => {
-        const interval = setInterval(() => {
-            fetchLeaderboard(activeTab);
-        }, 30_000);
-        return () => clearInterval(interval);
-    }, [activeTab, fetchLeaderboard]);
-
-    // ========================================================================
-    // DERIVED VALUES
-    // ========================================================================
-
-    const maxSquats = users.length > 0 ? users[0].stats.totalSquats : 1;
-    const totalParticipants = users.length;
-    const totalSquatsSum = users.reduce(
-        (sum, u) => sum + u.stats.totalSquats,
-        0
-    );
-
-    // ========================================================================
-    // HELPERS
-    // ========================================================================
-
-    const getRankDisplay = (rank: number): string => {
-        if (rank === 1) return "🥇";
-        if (rank === 2) return "🥈";
-        if (rank === 3) return "🥉";
-        return `${rank}`;
-    };
-
-    const getRowClass = (rank: number): string => {
-        if (rank === 1) return "lb-row lb-row--gold";
-        if (rank === 2) return "lb-row lb-row--silver";
-        if (rank === 3) return "lb-row lb-row--bronze";
-        return "lb-row";
-    };
-
-    const getRankClass = (rank: number): string => {
-        if (rank <= 3) return `lb-rank lb-rank--${rank}`;
-        return "lb-rank";
-    };
-
-    const formatNumber = (num: number): string => {
-        return num.toLocaleString("en-IN");
-    };
-
-    // ========================================================================
-    // RENDER
-    // ========================================================================
+    const maxSquats = users.length > 0 ? users[0].squats : 1;
 
     return (
-        <aside className="feature1-sidebar" id="feature1-leaderboard">
-            {/* Header */}
+        <aside className="feature1-sidebar">
             <div className="lb-header">
-                <h2>🏆 Leaderboard</h2>
-                <p>Top performers across the FitConquest community</p>
+                <div className="lb-header-top">
+                    <h2>🏆 Leaderboard</h2>
+                    <div className="lb-live-indicator">LIVE</div>
+                </div>
+                <p>Top performers in Bengaluru by activity type</p>
             </div>
 
-            {/* Tabs */}
-            <div className="lb-tabs" role="tablist" aria-label="Leaderboard time range">
-                {TABS.map((tab) => (
+            <div className="lb-tabs lb-tabs--mode">
+                {(["walk", "cycle"] as const).map((activityMode) => (
                     <button
-                        key={tab.key}
-                        role="tab"
-                        aria-selected={activeTab === tab.key}
-                        className={`lb-tab${activeTab === tab.key ? " lb-tab--active" : ""}`}
-                        onClick={() => setActiveTab(tab.key)}
+                        key={activityMode}
+                        className={`lb-tab ${mode === activityMode ? "lb-tab--active" : ""}`}
+                        onClick={() => setMode(activityMode)}
                     >
-                        {tab.label}
+                        {activityMode === "walk" ? "By Walk" : "By Cycle"}
                     </button>
                 ))}
             </div>
 
-            {/* Leaderboard List */}
-            {loading ? (
-                <div className="lb-loading">
-                    <div className="lb-spinner" />
-                    <span>Loading leaderboard…</span>
-                </div>
-            ) : error ? (
-                <div className="lb-empty">
-                    <span className="lb-empty-icon">⚠️</span>
-                    <span>Failed to load: {error}</span>
-                </div>
-            ) : users.length === 0 ? (
-                <div className="lb-empty">
-                    <span className="lb-empty-icon">🏋️</span>
-                    <span>
-                        No data yet for this period.
-                        <br />
-                        Start squatting to get on the board!
-                    </span>
-                </div>
-            ) : (
-                <div className="lb-list-wrapper">
-                    <div className="lb-list" role="list">
-                        {users.map((user, idx) => {
-                            const rank = idx + 1;
-                            const progress =
-                                maxSquats > 0
-                                    ? (user.stats.totalSquats / maxSquats) * 100
-                                    : 0;
+            <div className="lb-tabs">
+                {(["daily", "weekly", "monthly", "overall"] as const).map((tab) => (
+                    <button
+                        key={tab}
+                        className={`lb-tab ${activeTab === tab ? "lb-tab--active" : ""}`}
+                        onClick={() => setActiveTab(tab)}
+                    >
+                        {tab}
+                    </button>
+                ))}
+            </div>
 
-                            return (
-                                <div
-                                    key={user._id}
-                                    className={getRowClass(rank)}
-                                    role="listitem"
-                                >
-                                    {/* Rank */}
-                                    <div className={getRankClass(rank)}>
-                                        {getRankDisplay(rank)}
-                                    </div>
-
-                                    {/* User Info */}
-                                    <div className="lb-info">
-                                        <div className="lb-username">{user.username}</div>
-                                        {user.location?.city && (
-                                            <div className="lb-location">
-                                                📍 {user.location.city}
-                                                {user.location.state
-                                                    ? `, ${user.location.state}`
-                                                    : ""}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Squat Count */}
-                                    <div className="lb-squats">
-                                        <div className="lb-squats-value">
-                                            {formatNumber(user.stats.totalSquats)}
-                                        </div>
-                                        <div className="lb-squats-label">squats</div>
-                                    </div>
-
-                                    {/* Progress bar */}
-                                    <div
-                                        className="lb-progress"
-                                        style={{ width: `${progress}%` }}
-                                    />
+            <div className="lb-list-wrapper">
+                <div className="lb-list">
+                    {users.map((user, idx) => {
+                        const rank = idx + 1;
+                        const progress = (user.squats / maxSquats) * 100;
+                        return (
+                            <div
+                                key={user.id}
+                                className={`lb-row ${rank === 1 ? "lb-row--gold" : rank === 2 ? "lb-row--silver" : rank === 3 ? "lb-row--bronze" : ""}`}
+                            >
+                                <div className={`lb-rank lb-rank--${rank}`}>
+                                    {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
                                 </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
 
-            {/* Footer Stats */}
+                                <div className="lb-info">
+                                    <div className="lb-username">{user.username}</div>
+                                    <div className="lb-location">📍 {user.location}</div>
+                                </div>
+
+                                <div className="lb-squats">
+                                    <div className="lb-squats-value">{user.squats.toLocaleString("en-IN")}</div>
+                                    <div className="lb-squats-label">SQUATS</div>
+                                </div>
+
+                                <div className="lb-progress" style={{ width: `${progress}%` }} />
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
             <div className="lb-footer">
                 <div className="lb-footer-card">
                     <div className="lb-stat">
-                        <div className="lb-stat-label">Participants</div>
-                        <div className="lb-stat-value">{totalParticipants}</div>
+                        <div className="lb-stat-label">Active Users</div>
+                        <div className="lb-stat-value">{stats.participants}</div>
                     </div>
                     <div className="lb-stat">
-                        <div className="lb-stat-label">Total Squats</div>
+                        <div className="lb-stat-label">{mode === "walk" ? "Total Walk Squats" : "Total Cycle Squats"}</div>
                         <div className="lb-stat-value lb-stat-value--accent">
-                            {formatNumber(totalSquatsSum)}
+                            {stats.totalSquats.toLocaleString("en-IN")}
                         </div>
                     </div>
                 </div>
