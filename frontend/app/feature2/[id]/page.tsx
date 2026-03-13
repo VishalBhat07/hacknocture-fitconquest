@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, use } from "react";
 import io from "socket.io-client";
 import Link from "next/link";
+import SquatTracker from "./SquatTracker";
 
 let socket: any;
 
@@ -155,46 +156,49 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
 
   // ── Start camera / AI engine ─────────────────────────────────────────────
   const startCamera = async () => {
-    try {
-      // 1. Tell the AI engine which exercise to track
-      await fetch(`${AI_ENGINE_URL}/exercise`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ exercise: exerciseType }),
-      });
+    setCameraActive(true);
+    prevCountRef.current = 0;
+    setRepCount(0);
 
-      // 2. Reset counter
-      await fetch(`${AI_ENGINE_URL}/reset`, { method: "POST" });
+    if (exerciseType === 'pushup') {
+      try {
+        await fetch(`${AI_ENGINE_URL}/exercise`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exercise: "pushup" }),
+        });
+        await fetch(`${AI_ENGINE_URL}/reset`, { method: "POST" });
+        
+        pollRef.current = setInterval(async () => {
+          try {
+            const res = await fetch(`${AI_ENGINE_URL}/stats`);
+            if (res.ok) {
+              const data = await res.json();
+              setAiStats(data);
+              setRepCount(data.count);
 
-      // 3. Show the video feed
-      setCameraActive(true);
-      prevCountRef.current = 0;
-      setRepCount(0);
-
-      // 4. Start polling stats
-      pollRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`${AI_ENGINE_URL}/stats`);
-          if (res.ok) {
-            const data = await res.json();
-            setAiStats(data);
-            setRepCount(data.count);
-
-            // Emit new reps to socket
-            const newReps = data.count - prevCountRef.current;
-            if (newReps > 0) {
-              emitRep(newReps);
-              prevCountRef.current = data.count;
+              const newReps = data.count - prevCountRef.current;
+              if (newReps > 0) {
+                emitRep(newReps);
+                prevCountRef.current = data.count;
+              }
             }
-          }
-        } catch (e) {
-          // AI engine might not be running
-        }
-      }, 500);
-    } catch (e) {
-      console.error("Failed to connect to AI Engine:", e);
-      alert("Could not connect to AI Engine. Make sure to run: python app.py (in ai-engine folder)");
+          } catch (e) { }
+        }, 500);
+      } catch (e) {
+        console.error("Failed to connect to AI Engine:", e);
+        alert("Could not connect to AI Engine.");
+      }
     }
+  };
+
+  const handleSquatRep = (count: number) => {
+    emitRep(count);
+  };
+
+  const handleSquatStats = (stats: any) => {
+    setAiStats(stats);
+    setRepCount(stats.count);
   };
 
   // ── Stop camera ──────────────────────────────────────────────────────────
@@ -367,7 +371,7 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
               {/* Camera Feed Area */}
               {cameraActive ? (
                 <div>
-                  {/* Live Video Feed from AI Engine */}
+                  {/* Live Video Feed / AI Tracker */}
                   <div style={{
                     position: 'relative',
                     borderRadius: '16px',
@@ -376,38 +380,46 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
                     marginBottom: '1.5rem',
                     background: '#000',
                   }}>
-                    <img
-                      src={`${AI_ENGINE_URL}/video_feed`}
-                      alt="AI Exercise Detection"
-                      style={{
-                        width: '100%',
-                        maxHeight: '480px',
-                        objectFit: 'contain',
-                        display: 'block',
-                      }}
-                    />
-                    {/* Live badge */}
-                    <div style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 12px',
-                      borderRadius: '20px',
-                      background: 'rgba(255,50,50,0.85)',
-                      color: '#fff',
-                      fontSize: '0.75rem',
-                      fontWeight: 'bold',
-                    }}>
-                      <span style={{
-                        width: '8px', height: '8px', borderRadius: '50%',
-                        background: '#fff',
-                        animation: 'pulse 1.5s infinite',
-                      }}></span>
-                      LIVE
-                    </div>
+                    {exerciseType === 'squat' ? (
+                      <SquatTracker 
+                        onRep={handleSquatRep} 
+                        onStatsUpdate={handleSquatStats} 
+                      />
+                    ) : (
+                      <>
+                        <img
+                          src={`${AI_ENGINE_URL}/video_feed`}
+                          alt="AI Exercise Detection"
+                          style={{
+                            width: '100%',
+                            maxHeight: '480px',
+                            objectFit: 'contain',
+                            display: 'block',
+                          }}
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          top: '12px',
+                          right: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 12px',
+                          borderRadius: '20px',
+                          background: 'rgba(255,50,50,0.85)',
+                          color: '#fff',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold',
+                        }}>
+                          <span style={{
+                            width: '8px', height: '8px', borderRadius: '50%',
+                            background: '#fff',
+                            animation: 'pulse 1.5s infinite',
+                          }}></span>
+                          LIVE
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Stats Panel */}

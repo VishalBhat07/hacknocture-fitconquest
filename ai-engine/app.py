@@ -14,16 +14,16 @@ import json
 import threading
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
-from squat_detector import SquatDetector
-from pushup_detector import PushupDetector
+from squat_tracker import SquatTracker
+from pushup_tracker import PushupTracker
 
 app = Flask(__name__)
 CORS(app)
 
 # ── Global state ─────────────────────────────────────────────────────────────
 detectors = {
-    "squat": SquatDetector(),
-    "pushup": PushupDetector(),
+    "squat": SquatTracker(),
+    "pushup": PushupTracker(),
 }
 active_exercise = "squat"  # default exercise
 
