@@ -53,11 +53,14 @@ export default function PushupTracker({ onRep, onStatsUpdate }: { onRep: (num: n
         
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
           baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
             delegate: "GPU"
           },
           runningMode: "VIDEO",
           numPoses: 1,
+          minPoseDetectionConfidence: 0.7,
+          minPosePresenceConfidence: 0.7,
+          minTrackingConfidence: 0.7,
         });
 
         landmarkerRef.current = landmarker;
@@ -127,11 +130,23 @@ export default function PushupTracker({ onRep, onStatsUpdate }: { onRep: (num: n
           // Helper to map 0..1 to canvas pixel coords (FLIPPED for mirroring)
           const pt = (idx: number) => [(1 - lms[idx].x) * w, lms[idx].y * h];
 
-          const shoulder = pt(L_SHOULDER);
-          const elbow = pt(L_ELBOW);
-          const wrist = pt(L_WRIST);
-          const hip = pt(L_HIP);
-          const ankle = pt(L_ANKLE);
+          const leftVis = lms[L_SHOULDER].visibility || 0;
+          const rightVis = lms[R_SHOULDER].visibility || 0;
+
+          let shoulder, elbow, wrist, hip, ankle;
+          if (leftVis >= rightVis) {
+            shoulder = pt(L_SHOULDER);
+            elbow = pt(L_ELBOW);
+            wrist = pt(L_WRIST);
+            hip = pt(L_HIP);
+            ankle = pt(L_ANKLE);
+          } else {
+            shoulder = pt(R_SHOULDER);
+            elbow = pt(R_ELBOW);
+            wrist = pt(R_WRIST);
+            hip = pt(R_HIP);
+            ankle = pt(R_ANKLE);
+          }
 
           elbowAngle = calcAngle(shoulder, elbow, wrist);
           bodyAngle = calcAngle(shoulder, hip, ankle);

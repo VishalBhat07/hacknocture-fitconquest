@@ -52,11 +52,14 @@ export default function SquatTracker({ onRep, onStatsUpdate }: { onRep: (num: nu
         
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
           baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
             delegate: "GPU"
           },
           runningMode: "VIDEO",
           numPoses: 1,
+          minPoseDetectionConfidence: 0.7,
+          minPosePresenceConfidence: 0.7,
+          minTrackingConfidence: 0.7,
         });
 
         landmarkerRef.current = landmarker;
@@ -125,18 +128,35 @@ export default function SquatTracker({ onRep, onStatsUpdate }: { onRep: (num: nu
           // Helper to map 0..1 to canvas pixel coords (FLIPPED for mirroring)
           const pt = (idx: number) => [(1 - lms[idx].x) * w, lms[idx].y * h];
 
-          const hip = pt(L_HIP);
-          const knee = pt(L_KNEE);
-          const ankle = pt(L_ANKLE);
-          const shoulder = pt(L_SHOULDER);
+          const leftVis = lms[L_HIP].visibility || 0;
+          const rightVis = lms[R_HIP].visibility || 0;
+
+          let hip, knee, ankle, shoulder;
+          if (leftVis >= rightVis) {
+            hip = pt(L_HIP);
+            knee = pt(L_KNEE);
+            ankle = pt(L_ANKLE);
+            shoulder = pt(L_SHOULDER);
+          } else {
+            hip = pt(R_HIP);
+            knee = pt(R_KNEE);
+            ankle = pt(R_ANKLE);
+            shoulder = pt(R_SHOULDER);
+          }
 
           kneeAngle = calcAngle(hip, knee, ankle);
           const hipAngle = calcAngle(shoulder, hip, knee);
 
           let feedback_lines: string[] = [];
 
-          const flippedKneeX = 1 - lms[L_KNEE].x;
-          const flippedAnkleX = 1 - lms[L_ANKLE].x;
+          let flippedKneeX, flippedAnkleX;
+          if (leftVis >= rightVis) {
+            flippedKneeX = 1 - lms[L_KNEE].x;
+            flippedAnkleX = 1 - lms[L_ANKLE].x;
+          } else {
+            flippedKneeX = 1 - lms[R_KNEE].x;
+            flippedAnkleX = 1 - lms[R_ANKLE].x;
+          }
 
           if (flippedKneeX - flippedAnkleX > 0.05) {
              feedback_lines.push("Knees going too far forward!");
