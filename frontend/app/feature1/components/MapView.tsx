@@ -4,130 +4,105 @@ import Link from "next/link";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { ActivityMode, getLeaderboardUsers } from "../data/leaderboardData";
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface ActivityUser {
+  _id: string;
+  username: string;
+}
+
+interface Activity {
+  _id: string;
+  userId: ActivityUser;
+  activityType: "walk" | "cycle";
+  source: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  avgSpeed: number;
+  areaSquareMeters: number;
+  startTime: string;
+  endTime: string;
+  route: {
+    type: "LineString" | "Polygon";
+    coordinates: any; // LineString: [lng,lat][]  |  Polygon: [lng,lat][][]
+  };
+}
+
+type ActivityFilter = "all" | "walk" | "cycle";
+
+interface SearchSuggestion {
+  id: number;
+  label: string;
+  primary: string;
+  secondary: string;
+  latitude: number;
+  longitude: number;
+}
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 const DEFAULT_CENTER = { lat: 12.9716, lng: 77.5946 };
-const DEFAULT_ZOOM = 8;
+const DEFAULT_ZOOM = 12;
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 19;
 const SEARCH_DELAY_MS = 400;
-
 const TILE_LAYER_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION =
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 const BANGALORE_BOUNDING_BOX = {
-    north: 13.2,
-    south: 12.7,
-    west: 77.3,
-    east: 77.85,
+  north: 13.2, south: 12.7, west: 77.3, east: 77.85,
 };
 
+const USER_COLORS = [
+  "#f43f5e", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6",
+  "#06b6d4", "#ec4899", "#84cc16", "#ef4444", "#14b8a6",
+  "#f97316", "#6366f1", "#22d3ee", "#a855f7", "#eab308",
+  "#0ea5e9", "#d946ef", "#2dd4bf", "#fb923c", "#818cf8",
+];
+
 // ============================================================================
-// SEARCH TYPES
+// HELPERS
 // ============================================================================
 
-interface SearchSuggestion {
-    id: number;
-    label: string;
-    primary: string;
-    secondary: string;
-    latitude: number;
-    longitude: number;
+function getUserColor(userId: string, map: Map<string, string>): string {
+  if (map.has(userId)) return map.get(userId)!;
+  const color = USER_COLORS[map.size % USER_COLORS.length];
+  map.set(userId, color);
+  return color;
 }
 
-type MapTheme = "dark";
-
-// ============================================================================
-// CUSTOM MARKER FACTORY
-// ============================================================================
-
-function createCustomIcon(rank: number): L.DivIcon {
-    const isTop3 = rank <= 3;
-    const size = isTop3 ? 48 : 38;
-    const colors: Record<number, { bg: string; glow: string }> = {
-        1: { bg: "linear-gradient(135deg, #ffd700, #f59e0b)", glow: "rgba(255, 215, 0, 0.6)" },
-        2: { bg: "linear-gradient(135deg, #e2e8f0, #94a3b8)", glow: "rgba(148, 163, 184, 0.5)" },
-        3: { bg: "linear-gradient(135deg, #f59e0b, #d97706)", glow: "rgba(217, 119, 6, 0.45)" },
-    };
-
-    const defaultColor = { bg: "linear-gradient(135deg, #6366f1, #818cf8)", glow: "rgba(99, 102, 241, 0.4)" };
-
-    const color = isTop3 ? colors[rank] : defaultColor;
-    const borderColor = "rgba(255,255,255,0.9)";
-    const textColor = isTop3 && rank <= 2 ? "#1a1a2e" : "#fff";
-
-    return L.divIcon({
-        className: "custom-fitness-marker",
-        html: `
-      <div style="
-        width: ${size}px;
-        height: ${size}px;
-        border-radius: 50%;
-        background: ${color.bg};
-        border: 3px solid ${borderColor};
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: ${isTop3 ? 18 : 14}px;
-        font-weight: 800;
-        color: ${textColor};
-        box-shadow: 0 6px 20px ${color.glow}, 0 0 0 6px ${color.glow};
-        transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
-        cursor: pointer;
-        animation: markerPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-        animation-delay: ${rank * 0.08}s;
-        position: relative;
-      ">${rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : rank}</div>
-    `,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2],
-        popupAnchor: [0, -(size / 2 + 4)],
-    });
+function fmtDist(m: number) { return (m / 1000).toFixed(1) + " km"; }
+function fmtDur(s: number) { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m} min`; }
+function fmtSpeed(k: number) { return k.toFixed(1) + " km/h"; }
+function fmtArea(sqm: number) {
+  if (sqm >= 1_000_000) return (sqm / 1_000_000).toFixed(2) + " km²";
+  if (sqm > 0) return sqm.toLocaleString("en-IN") + " m²";
+  return "—";
 }
 
-function createPopupHTML(
-    user: ReturnType<typeof getLeaderboardUsers>[number],
-    rank: number,
-    theme: MapTheme,
-): string {
-    const medal = rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : `#${rank}`;
-    const isDark = theme === "dark";
-    const textPrimary = isDark ? "#fff" : "#1a1a2e";
-    const textSecondary = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
-    const textAccent = isDark ? "#818cf8" : "#4f46e5";
-    const divider = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
-    const activityBg = isDark ? "rgba(99,102,241,0.1)" : "rgba(79,70,229,0.08)";
-    const activityColor = isDark ? "#a5b4fc" : "#4f46e5";
+function actIcon(type: string) { return type === "walk" ? "🚶" : type === "cycle" ? "🚴" : "🏅"; }
+function routeLabel(type: string) { return type === "Polygon" ? "Loop" : "A → B"; }
 
-    return `
-    <div style="padding: 6px 2px; min-width: 180px;">
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-        <span style="font-size:1.5rem;">${medal}</span>
-        <div>
-          <div style="font-size:0.95rem; font-weight:700; color:${textPrimary};">${user.username}</div>
-          <div style="font-size:0.72rem; color:${textSecondary};">📍 ${user.location}</div>
-        </div>
-      </div>
-      <div style="display:flex; gap:16px; margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid ${divider};">
-        <div style="text-align:center;">
-          <div style="font-size:1rem; font-weight:700; color:${textAccent};">${user.squats.toLocaleString("en-IN")}</div>
-          <div style="font-size:0.65rem; color:${textSecondary}; text-transform:uppercase; letter-spacing:0.05em;">squats</div>
-        </div>
-        <div style="text-align:center;">
-          <div style="font-size:1rem; font-weight:700; color:${textAccent};">${user.challengesWon}</div>
-          <div style="font-size:0.65rem; color:${textSecondary}; text-transform:uppercase; letter-spacing:0.05em;">wins</div>
-        </div>
-      </div>
-      <div style="font-size:0.75rem; padding:6px 10px; background:${activityBg}; border-radius:8px; color:${activityColor}; font-weight:600; text-align:center;">
-        🏃 ${user.activity}
-      </div>
-    </div>
-  `;
+function fmtDate(d: string) {
+  const dt = new Date(d), now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const diff = (today.getTime() - day.getTime()) / 86400000;
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+function hexToRgba(hex: string, a: number) {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
 }
 
 // ============================================================================
@@ -135,315 +110,392 @@ function createPopupHTML(
 // ============================================================================
 
 export default function MapView() {
-    const mapContainerRef = useRef<HTMLDivElement>(null);
-    const mapInstanceRef = useRef<L.Map | null>(null);
-    const markersRef = useRef<L.Marker[]>([]);
-    const searchMarkerRef = useRef<L.Marker | null>(null);
-    const mapReadyRef = useRef(false);
-    const searchTimerRef = useRef<number | null>(null);
-    const searchAbortRef = useRef<AbortController | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const layersRef = useRef<L.Layer[]>([]);
+  const searchMarkerRef = useRef<L.Marker | null>(null);
+  const mapReadyRef = useRef(false);
+  const searchTimerRef = useRef<number | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const userColorMapRef = useRef<Map<string, string>>(new Map());
 
-    const [isLoading, setIsLoading] = useState(true);
-    const [theme] = useState<MapTheme>("dark");
-    const [mode, setMode] = useState<ActivityMode>("walk");
-    const [searchQuery, setSearchQuery] = useState("");
-    const [searchSuggestions, setSearchSuggestions] = useState<SearchSuggestion[]>([]);
-    const [searchLoading, setSearchLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [filter, setFilter] = useState<ActivityFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchSuggestions, setSearchSuggestions] = useState<SearchSuggestion[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
 
-    const users = useMemo(() => getLeaderboardUsers(mode, "daily"), [mode]);
+  // ========================================================================
+  // FETCH
+  // ========================================================================
 
-    // ========================================================================
-    // PLACE MARKERS (static mock data — no backend)
-    // ========================================================================
-
-    const placeMarkers = useCallback((currentTheme: MapTheme) => {
-        const map = mapInstanceRef.current;
-        if (!map || !mapReadyRef.current) return;
-
-        // Remove old markers
-        markersRef.current.forEach((m) => {
-            try { map.removeLayer(m); } catch { /* ignore */ }
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/activities?days=3`, {
+          headers: { "ngrok-skip-browser-warning": "true" },
         });
-        markersRef.current = [];
+        if (res.ok) setActivities(await res.json());
+      } catch (e) { console.error("Fetch error:", e); }
+    })();
+  }, []);
 
-        users.forEach((user, idx) => {
-            const rank = idx + 1;
+  // ========================================================================
+  // FILTERED
+  // ========================================================================
 
-            try {
-                const marker = L.marker(user.coords, {
-                    icon: createCustomIcon(rank),
-                })
-                    .bindPopup(createPopupHTML(user, rank, currentTheme), {
-                        maxWidth: 260,
-                        className: "fitness-popup",
-                    })
-                    .addTo(map);
+  const filtered = useMemo(() => {
+    if (filter === "all") return activities;
+    return activities.filter((a) => a.activityType === filter);
+  }, [activities, filter]);
 
-                markersRef.current.push(marker);
-            } catch (err) {
-                console.warn("Failed to add marker:", err);
-            }
-        });
-    }, [users]);
+  // Legend: sorted by total area (loops count), lines show count
+  const userLegend = useMemo(() => {
+    const m = new Map<string, { username: string; color: string; loops: number; lines: number; totalArea: number }>();
+    filtered.forEach((a) => {
+      const uid = a.userId._id;
+      const color = getUserColor(uid, userColorMapRef.current);
+      if (!m.has(uid)) m.set(uid, { username: a.userId.username, color, loops: 0, lines: 0, totalArea: 0 });
+      const entry = m.get(uid)!;
+      if (a.route.type === "Polygon") { entry.loops++; entry.totalArea += a.areaSquareMeters || 0; }
+      else { entry.lines++; }
+    });
+    return Array.from(m.values()).sort((a, b) => b.totalArea - a.totalArea);
+  }, [filtered]);
 
-    const handleSelectSuggestion = useCallback((suggestion: SearchSuggestion) => {
-        const map = mapInstanceRef.current;
-        if (!map) return;
+  // ========================================================================
+  // DRAW — handle LineString vs Polygon differently
+  // ========================================================================
 
-        if (searchMarkerRef.current) {
-            map.removeLayer(searchMarkerRef.current);
-        }
+  const drawActivities = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapReadyRef.current) return;
 
-        map.flyTo([suggestion.latitude, suggestion.longitude], 14, { animate: true });
-        searchMarkerRef.current = L.marker([suggestion.latitude, suggestion.longitude]).addTo(map);
-        searchMarkerRef.current.bindPopup(`📍 ${suggestion.label}`).openPopup();
+    // Clear
+    layersRef.current.forEach((l) => { try { map.removeLayer(l); } catch {} });
+    layersRef.current = [];
+    if (filtered.length === 0) return;
 
-        setSearchQuery(suggestion.label);
-        setSearchSuggestions([]);
-    }, []);
+    const allLatLngs: [number, number][] = [];
 
-    // ========================================================================
-    // INITIALIZE MAP
-    // ========================================================================
+    filtered.forEach((activity) => {
+      const color = getUserColor(activity.userId._id, userColorMapRef.current);
+      const isLoop = activity.route.type === "Polygon";
 
-    useEffect(() => {
-        if (!mapContainerRef.current || mapInstanceRef.current) return;
+      // Build tooltip/popup HTML
+      const areaRow = isLoop
+        ? `<div style="text-align:center;">
+             <div style="font-size:0.95rem;font-weight:700;color:${color};">${fmtArea(activity.areaSquareMeters)}</div>
+             <div style="font-size:0.6rem;color:#777;text-transform:uppercase;">area covered</div>
+           </div>`
+        : "";
 
-        const map = L.map(mapContainerRef.current, {
-            center: [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
-            zoom: DEFAULT_ZOOM,
-            minZoom: MIN_ZOOM,
-            maxZoom: MAX_ZOOM,
-            zoomControl: true,
-        });
+      const popupHTML = `
+        <div style="padding:8px 4px;min-width:200px;font-family:system-ui,sans-serif;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <span style="font-size:1.5rem;">${actIcon(activity.activityType)}</span>
+            <div>
+              <div style="font-size:0.95rem;font-weight:700;color:#111;">${activity.userId.username}</div>
+              <div style="font-size:0.72rem;color:#666;">
+                ${fmtDate(activity.startTime)} • ${activity.activityType}
+                <span style="margin-left:6px;padding:2px 6px;background:#eee;color:#444;border-radius:4px;font-size:0.62rem;font-weight:700;">
+                  ${routeLabel(activity.route.type)}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:${isLoop ? "1fr 1fr" : "1fr 1fr 1fr"};gap:8px;padding:10px 0;border-top:1px solid #eaeaea;">
+            ${areaRow}
+            <div style="text-align:center;">
+              <div style="font-size:0.95rem;font-weight:700;color:${color};">${fmtDist(activity.distanceMeters)}</div>
+              <div style="font-size:0.6rem;color:#777;text-transform:uppercase;">distance</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:0.95rem;font-weight:700;color:${color};">${fmtDur(activity.durationSeconds)}</div>
+              <div style="font-size:0.6rem;color:#777;text-transform:uppercase;">duration</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:0.95rem;font-weight:700;color:${color};">${fmtSpeed(activity.avgSpeed)}</div>
+              <div style="font-size:0.6rem;color:#777;text-transform:uppercase;">avg speed</div>
+            </div>
+          </div>
+          <div style="font-size:0.7rem;padding:4px 8px;margin-top:6px;background:#f5f5f5;border-radius:6px;color:#555;text-align:center;">
+            Source: ${activity.source}
+          </div>
+        </div>`;
 
-        L.tileLayer(TILE_LAYER_URL, {
-            attribution: TILE_ATTRIBUTION,
-            maxZoom: MAX_ZOOM,
+      if (isLoop) {
+        // ── POLYGON (loop route) → filled region ──────────────────────
+        const ring: [number, number][] = activity.route.coordinates[0];
+        if (!ring || ring.length < 4) return;
+        const latLngs = ring.map(([lng, lat]) => [lat, lng] as [number, number]);
+        latLngs.forEach((ll) => allLatLngs.push(ll));
+
+        const polygon = L.polygon(latLngs, {
+          color,
+          weight: 2.5,
+          opacity: 0.9,
+          fillColor: color,
+          fillOpacity: 0.22,
+          smoothFactor: 1,
         }).addTo(map);
 
-        mapInstanceRef.current = map;
+        polygon.bindPopup(popupHTML, { maxWidth: 300, className: "fitness-popup" });
+        polygon.on("mouseover", () => polygon.setStyle({ fillOpacity: 0.4, weight: 3.5 }));
+        polygon.on("mouseout", () => polygon.setStyle({ fillOpacity: 0.22, weight: 2.5 }));
+        polygon.on("click", () => setSelectedActivity(activity));
+        layersRef.current.push(polygon);
 
-        map.whenReady(() => {
-            mapReadyRef.current = true;
-            setIsLoading(false);
-            placeMarkers("dark");
-        });
+      } else {
+        // ── LINESTRING (A→B route) → thick colored path ───────────────
+        const coords: [number, number][] = activity.route.coordinates;
+        if (!coords || coords.length < 2) return;
+        const latLngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+        latLngs.forEach((ll) => allLatLngs.push(ll));
 
-        return () => {
-            mapReadyRef.current = false;
-            if (searchMarkerRef.current) {
-                map.removeLayer(searchMarkerRef.current);
-                searchMarkerRef.current = null;
-            }
-            map.remove();
-            mapInstanceRef.current = null;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        // Outer glow line
+        const glow = L.polyline(latLngs, {
+          color,
+          weight: 10,
+          opacity: 0.15,
+          lineCap: "round",
+          lineJoin: "round",
+          smoothFactor: 1.5,
+        }).addTo(map);
 
-    useEffect(() => {
-        placeMarkers(theme);
-    }, [placeMarkers, theme]);
+        // Main line
+        const line = L.polyline(latLngs, {
+          color,
+          weight: 4,
+          opacity: 0.85,
+          lineCap: "round",
+          lineJoin: "round",
+          smoothFactor: 1.5,
+          dashArray: activity.activityType === "walk" ? undefined : "10 6",
+        }).addTo(map);
 
-    useEffect(() => {
-        const query = searchQuery.trim();
+        line.bindPopup(popupHTML, { maxWidth: 300, className: "fitness-popup" });
+        line.on("mouseover", () => { line.setStyle({ weight: 6, opacity: 1 }); glow.setStyle({ weight: 16, opacity: 0.25 }); });
+        line.on("mouseout", () => { line.setStyle({ weight: 4, opacity: 0.85 }); glow.setStyle({ weight: 10, opacity: 0.15 }); });
+        line.on("click", () => setSelectedActivity(activity));
 
-        if (searchTimerRef.current) {
-            window.clearTimeout(searchTimerRef.current);
-        }
+        // Start/end markers
+        const startDot = L.circleMarker(latLngs[0], {
+          radius: 6, color: "#fff", fillColor: color, fillOpacity: 1, weight: 2,
+        }).addTo(map);
 
-        if (searchAbortRef.current) {
-            searchAbortRef.current.abort("replaced");
-            searchAbortRef.current = null;
-        }
+        const endDot = L.circleMarker(latLngs[latLngs.length - 1], {
+          radius: 5, color, fillColor: "#fff", fillOpacity: 1, weight: 2,
+        }).addTo(map);
 
-        if (query.length < 2) {
-            setSearchSuggestions([]);
-            setSearchLoading(false);
-            return;
-        }
+        layersRef.current.push(glow, line, startDot, endDot);
+      }
+    });
 
-        searchTimerRef.current = window.setTimeout(async () => {
-            const controller = new AbortController();
-            searchAbortRef.current = controller;
-            setSearchLoading(true);
+    // Fit bounds
+    if (allLatLngs.length > 0) {
+      map.fitBounds(L.latLngBounds(allLatLngs), { padding: [40, 40], maxZoom: 14 });
+    }
+  }, [filtered]);
 
-            try {
-                const url = new URL("https://nominatim.openstreetmap.org/search");
-                url.searchParams.set("format", "json");
-                url.searchParams.set("addressdetails", "1");
-                url.searchParams.set("limit", "8");
-                url.searchParams.set("dedupe", "1");
-                url.searchParams.set("namedetails", "1");
-                url.searchParams.set("accept-language", "en");
-                url.searchParams.set("countrycodes", "in");
-                url.searchParams.set("q", query);
+  // ========================================================================
+  // SEARCH
+  // ========================================================================
 
-                if (query.length <= 4) {
-                    url.searchParams.set(
-                        "viewbox",
-                        `${BANGALORE_BOUNDING_BOX.west},${BANGALORE_BOUNDING_BOX.north},${BANGALORE_BOUNDING_BOX.east},${BANGALORE_BOUNDING_BOX.south}`,
-                    );
-                    url.searchParams.set("bounded", "1");
-                } else {
-                    url.searchParams.set("bounded", "0");
-                }
+  const handleSelectSuggestion = useCallback((s: SearchSuggestion) => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (searchMarkerRef.current) map.removeLayer(searchMarkerRef.current);
+    map.flyTo([s.latitude, s.longitude], 14, { animate: true });
+    searchMarkerRef.current = L.marker([s.latitude, s.longitude]).addTo(map);
+    searchMarkerRef.current.bindPopup(`📍 ${s.label}`).openPopup();
+    setSearchQuery(s.label);
+    setSearchSuggestions([]);
+  }, []);
 
-                const response = await fetch(url.toString(), {
-                    signal: controller.signal,
-                    headers: { Accept: "application/json" },
-                });
+  // ========================================================================
+  // MAP INIT
+  // ========================================================================
 
-                if (!response.ok) {
-                    throw new Error(`Geocoding failed with status ${response.status}`);
-                }
+  useEffect(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
+    const map = L.map(mapContainerRef.current, {
+      center: [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
+      zoom: DEFAULT_ZOOM, minZoom: MIN_ZOOM, maxZoom: MAX_ZOOM, zoomControl: true,
+    });
+    L.tileLayer(TILE_LAYER_URL, { attribution: TILE_ATTRIBUTION, maxZoom: MAX_ZOOM }).addTo(map);
+    mapInstanceRef.current = map;
+    map.whenReady(() => { mapReadyRef.current = true; setIsLoading(false); });
+    return () => {
+      mapReadyRef.current = false;
+      if (searchMarkerRef.current) { map.removeLayer(searchMarkerRef.current); searchMarkerRef.current = null; }
+      map.remove(); mapInstanceRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-                const json = await response.json();
-                const suggestions = Array.isArray(json)
-                    ? json
-                        .map((item: { place_id: number; display_name: string; lat: string; lon: string }) => {
-                            const latitude = Number(item.lat);
-                            const longitude = Number(item.lon);
+  useEffect(() => { drawActivities(); }, [drawActivities]);
 
-                            if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-                                return null;
-                            }
+  // Search effect
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
+    if (searchAbortRef.current) { searchAbortRef.current.abort("replaced"); searchAbortRef.current = null; }
+    if (q.length < 2) { setSearchSuggestions([]); setSearchLoading(false); return; }
+    searchTimerRef.current = window.setTimeout(async () => {
+      const ctrl = new AbortController(); searchAbortRef.current = ctrl; setSearchLoading(true);
+      try {
+        const url = new URL("https://nominatim.openstreetmap.org/search");
+        url.searchParams.set("format", "json"); url.searchParams.set("limit", "8");
+        url.searchParams.set("accept-language", "en"); url.searchParams.set("countrycodes", "in"); url.searchParams.set("q", q);
+        if (q.length <= 4) { url.searchParams.set("viewbox", `${BANGALORE_BOUNDING_BOX.west},${BANGALORE_BOUNDING_BOX.north},${BANGALORE_BOUNDING_BOX.east},${BANGALORE_BOUNDING_BOX.south}`); url.searchParams.set("bounded", "1"); }
+        const res = await fetch(url.toString(), { signal: ctrl.signal, headers: { Accept: "application/json" } });
+        if (!res.ok) throw new Error("fail");
+        const json = await res.json();
+        setSearchSuggestions(Array.isArray(json)
+          ? json.map((i: any) => { const lat = +i.lat, lng = +i.lon; if (!isFinite(lat) || !isFinite(lng)) return null; const [p, ...r] = (i.display_name || "").split(", "); return { id: i.place_id, label: p, primary: p, secondary: r.join(", "), latitude: lat, longitude: lng }; }).filter(Boolean) as SearchSuggestion[]
+          : []);
+      } catch (e) { if (e instanceof Error && e.name === "AbortError") return; setSearchSuggestions([]); } finally { setSearchLoading(false); }
+    }, SEARCH_DELAY_MS);
+    return () => { if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current); };
+  }, [searchQuery]);
 
-                            const displayParts = (item.display_name || "").split(", ");
-                            const [primary, ...rest] = displayParts;
+  useEffect(() => () => { if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current); if (searchAbortRef.current) searchAbortRef.current.abort("unmount"); }, []);
 
-                            return {
-                                id: item.place_id,
-                                label: primary || item.display_name,
-                                primary: primary || item.display_name,
-                                secondary: rest.join(", "),
-                                latitude,
-                                longitude,
-                            };
-                        })
-                        .filter((item): item is SearchSuggestion => item !== null)
-                    : [];
+  // ========================================================================
+  // RENDER
+  // ========================================================================
 
-                setSearchSuggestions(suggestions);
-            } catch (error) {
-                if (error instanceof Error && error.name === "AbortError") {
-                    return;
-                }
-                setSearchSuggestions([]);
-            } finally {
-                setSearchLoading(false);
-            }
-        }, SEARCH_DELAY_MS);
+  const loopCount = filtered.filter((a) => a.route.type === "Polygon").length;
+  const lineCount = filtered.filter((a) => a.route.type === "LineString").length;
 
-        return () => {
-            if (searchTimerRef.current) {
-                window.clearTimeout(searchTimerRef.current);
-            }
-        };
-    }, [searchQuery]);
+  return (
+    <section className="feature1-map-shell" id="feature1-map">
+      <div className="feature1-map-controls">
+        <div className="map-top-bar">
+          <div className="feature1-map-overlay">
+            <div className="pulse-dot" />
+            <span>Activity Map</span>
+          </div>
 
-    useEffect(() => {
-        return () => {
-            if (searchTimerRef.current) {
-                window.clearTimeout(searchTimerRef.current);
-            }
-            if (searchAbortRef.current) {
-                searchAbortRef.current.abort("unmount");
-            }
-        };
-    }, []);
-
-    // ========================================================================
-    // RENDER
-    // ========================================================================
-
-    return (
-        <section className="feature1-map-shell" id="feature1-map">
-            <div className="feature1-map-controls">
-                <div className="map-top-bar">
-                    <div className="feature1-map-overlay">
-                        <div className="pulse-dot" />
-                        <span>Daily Map</span>
-                    </div>
-
-                    <div className="map-active-badge">
-                        <span className="map-active-count">{users.length}</span>
-                        <span className="map-active-label">Active Now</span>
-                    </div>
-
-                    <Link className="map-leaderboard-link" href="/feature1/leaderboard">
-                        🏆 Leaderboard Page
-                    </Link>
-                </div>
-
-                <div className="map-search-wrap">
-                    <div className="map-search-box">
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(event) => setSearchQuery(event.target.value)}
-                            placeholder="Search places in Bengaluru"
-                            aria-label="Search places"
-                        />
-                        {searchQuery && (
-                            <button
-                                type="button"
-                                className="map-search-clear"
-                                onClick={() => {
-                                    setSearchQuery("");
-                                    setSearchSuggestions([]);
-                                }}
-                                aria-label="Clear place search"
-                            >
-                                ×
-                            </button>
-                        )}
-                    </div>
-
-                    {(searchLoading || searchSuggestions.length > 0) && (
-                        <ul className="map-search-suggestions" role="listbox" aria-label="Place suggestions">
-                            {searchLoading && <li className="map-search-status">Searching places…</li>}
-                            {!searchLoading && searchSuggestions.map((suggestion) => (
-                                <li key={suggestion.id}>
-                                    <button type="button" onClick={() => handleSelectSuggestion(suggestion)}>
-                                        <span className="map-search-primary">{suggestion.primary}</span>
-                                        {suggestion.secondary && (
-                                            <span className="map-search-secondary">{suggestion.secondary}</span>
-                                        )}
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </div>
-
-                <div className="map-filter-wrap" aria-label="Activity and period filters">
-                    <div className="map-filter-group">
-                        {(["walk", "cycle"] as const).map((activity) => (
-                            <button
-                                key={activity}
-                                type="button"
-                                className={`map-filter-tab ${mode === activity ? "map-filter-tab--active" : ""}`}
-                                onClick={() => setMode(activity)}
-                            >
-                                {activity === "walk" ? "By Walk" : "By Cycle"}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div className="map-active-badge">
+              <span className="map-active-count">{loopCount}</span>
+              <span className="map-active-label">Regions</span>
             </div>
-
-            <div className="feature1-map">
-                {isLoading && (
-                    <div className="map-loading">
-                        <div className="map-loading-spinner" />
-                        <span>Loading Bengaluru map…</span>
-                    </div>
-                )}
-
-                <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+            <div className="map-active-badge">
+              <span className="map-active-count">{lineCount}</span>
+              <span className="map-active-label">Paths</span>
             </div>
-        </section>
-    );
+          </div>
+
+          <Link className="map-leaderboard-link" href="/feature1/leaderboard">
+            🏆 Leaderboard
+          </Link>
+        </div>
+
+        <div className="map-search-wrap">
+          <div className="map-search-box">
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search places in Bengaluru" aria-label="Search" />
+            {searchQuery && <button type="button" className="map-search-clear" onClick={() => { setSearchQuery(""); setSearchSuggestions([]); }}>×</button>}
+          </div>
+          {(searchLoading || searchSuggestions.length > 0) && (
+            <ul className="map-search-suggestions" role="listbox">
+              {searchLoading && <li className="map-search-status">Searching…</li>}
+              {!searchLoading && searchSuggestions.map((s) => (
+                <li key={s.id}><button type="button" onClick={() => handleSelectSuggestion(s)}><span className="map-search-primary">{s.primary}</span>{s.secondary && <span className="map-search-secondary">{s.secondary}</span>}</button></li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="map-filter-wrap">
+          <div className="map-filter-group" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            {(["all", "walk", "cycle"] as const).map((t) => (
+              <button key={t} type="button" className={`map-filter-tab ${filter === t ? "map-filter-tab--active" : ""}`} onClick={() => setFilter(t)}>
+                {t === "all" ? "All" : t === "walk" ? "🚶 By Walk" : "🚴 By Cycle"}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="feature1-map">
+        {isLoading && <div className="map-loading"><div className="map-loading-spinner" /><span>Loading map…</span></div>}
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+      </div>
+
+      {/* Legend */}
+      {userLegend.length > 0 && (
+        <div style={{
+          position: "absolute", bottom: 20, left: 20, zIndex: 1200, background: "rgba(10,10,15,0.9)",
+          backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16,
+          padding: "14px 16px", maxHeight: 250, overflowY: "auto", scrollbarWidth: "none", minWidth: 220,
+        }}>
+          <div style={{ fontSize: "0.63rem", fontWeight: 800, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Users
+          </div>
+          {userLegend.map((u, i) => (
+            <div key={u.username} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ width: 14, height: 14, borderRadius: 4, background: hexToRgba(u.color, 0.3), border: `2px solid ${u.color}`, flexShrink: 0 }} />
+              <span style={{ fontSize: "0.78rem", color: "#fff", fontWeight: 600, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.username}</span>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                {u.loops > 0 && <span style={{ fontSize: "0.62rem", color: u.color, fontWeight: 700, padding: "1px 5px", background: hexToRgba(u.color, 0.1), borderRadius: 4 }}>{fmtArea(u.totalArea)}</span>}
+                {u.lines > 0 && <span style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>{u.lines} path{u.lines > 1 ? "s" : ""}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Detail card */}
+      {selectedActivity && (() => {
+        const c = getUserColor(selectedActivity.userId._id, userColorMapRef.current);
+        const isLoop = selectedActivity.route.type === "Polygon";
+        return (
+          <div style={{
+            position: "absolute", bottom: 20, right: 20, zIndex: 1200, background: "rgba(10,10,15,0.92)",
+            backdropFilter: "blur(16px)", border: `1px solid ${c}44`, borderRadius: 20, padding: "18px 20px", minWidth: 260, maxWidth: 340,
+          }}>
+            <button onClick={() => setSelectedActivity(null)} style={{ position: "absolute", top: 10, right: 14, background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: "1.6rem" }}>{actIcon(selectedActivity.activityType)}</span>
+              <div>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{selectedActivity.userId.username}</div>
+                <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.45)" }}>
+                  {fmtDate(selectedActivity.startTime)} • {selectedActivity.activityType}
+                  <span style={{ marginLeft: 6, padding: "2px 6px", background: isLoop ? hexToRgba(c, 0.15) : "rgba(255,255,255,0.08)", borderRadius: 4, fontSize: "0.62rem", fontWeight: 700, color: isLoop ? c : "rgba(255,255,255,0.5)" }}>
+                    {routeLabel(selectedActivity.route.type)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+              {isLoop && (
+                <div style={{ textAlign: "center", padding: "6px 4px", background: "rgba(255,255,255,0.03)", borderRadius: 10 }}>
+                  <div style={{ fontSize: "0.92rem", fontWeight: 700, color: c }}>{fmtArea(selectedActivity.areaSquareMeters)}</div>
+                  <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.35)", textTransform: "uppercase" }}>Area Covered</div>
+                </div>
+              )}
+              {[
+                { label: "Distance", value: fmtDist(selectedActivity.distanceMeters) },
+                { label: "Duration", value: fmtDur(selectedActivity.durationSeconds) },
+                { label: "Avg Speed", value: fmtSpeed(selectedActivity.avgSpeed) },
+              ].map((s) => (
+                <div key={s.label} style={{ textAlign: "center", padding: "6px 4px", background: "rgba(255,255,255,0.03)", borderRadius: 10 }}>
+                  <div style={{ fontSize: "0.92rem", fontWeight: 700, color: c }}>{s.value}</div>
+                  <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.35)", textTransform: "uppercase" }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: "0.7rem", padding: "4px 8px", background: "rgba(255,255,255,0.05)", borderRadius: 6, color: "rgba(255,255,255,0.45)", textAlign: "center" }}>
+              Source: {selectedActivity.source}
+            </div>
+          </div>
+        );
+      })()}
+    </section>
+  );
 }
