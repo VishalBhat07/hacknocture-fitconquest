@@ -12,6 +12,7 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
   const [challenge, setChallenge] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
   const [squatCount, setSquatCount] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("fit_token");
@@ -31,8 +32,13 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
     socket.on("score_update", (data: any) => {
       setChallenge((prev: any) => {
         if (!prev) return prev;
-        return { ...prev, teams: data.teams, winnerTeam: data.winnerTeam };
+        return { ...prev, teams: data.teams, winnerTeam: data.winnerTeam, status: data.status || prev.status };
       });
+    });
+
+    socket.on("challenge_started", () => {
+      setCountdown(3);
+      setChallenge((prev: any) => ({ ...prev, status: 'active' }));
     });
 
     socket.on("challenge_completed", (data: any) => {
@@ -44,6 +50,16 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
       if (socket) socket.disconnect();
     };
   }, [challengeId]);
+
+  useEffect(() => {
+    if (countdown === null) return;
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else {
+      setCountdown(null); // time's up
+    }
+  }, [countdown]);
 
   const fetchUser = async (token: string) => {
     try {
@@ -105,6 +121,35 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
   const redPercentage = Math.min((redTeam.totalSquats / challenge.targetSquats) * 100, 100);
   const bluePercentage = Math.min((blueTeam.totalSquats / challenge.targetSquats) * 100, 100);
 
+  const totalMembers = redTeam.members.length + blueTeam.members.length;
+  const isHost = challenge.host._id === (user._id || user.id);
+  const userId = user._id || user.id;
+  const myTeam = redTeam.members.some((m:any) => m._id === userId || m === userId) ? 'Red' : 
+                 blueTeam.members.some((m:any) => m._id === userId || m === userId) ? 'Blue' : null;
+  const canStart = redTeam.members.length > 0 && blueTeam.members.length > 0;
+
+  const startChallenge = async () => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/challenges/${challengeId}/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('fit_token')}`,
+        },
+        body: JSON.stringify({ userId: user._id || user.id })
+      });
+      if (res.ok) {
+        // Broadcast Start via Socket
+        socket.emit("start_challenge", challengeId);
+      } else {
+         const data = await res.json();
+         alert(data.error);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="feature-page" style={{ padding: '8rem 5% 4rem' }}>
       <Link href="/feature2" className="back-link" style={{marginBottom: '2rem'}}>← Back to Squads</Link>
@@ -112,6 +157,7 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
       <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
         <h1 style={{ fontSize: '3rem', fontWeight: 'bold' }}>{challenge.title}</h1>
         <p className="subtitle" style={{margin: '0 auto'}}>Target: {challenge.targetSquats} Squats</p>
+        {myTeam && <p style={{marginTop: '0.5rem', fontWeight: 'bold', color: myTeam === 'Red' ? '#ff8888' : '#88ccff'}}>You are playing for Team {myTeam}</p>}
         {challenge.winnerTeam && <h2 style={{color: challenge.winnerTeam === 'Red' ? '#ff8888' : '#88ccff', marginTop: '1rem'}}>WINNER: TEAM {challenge.winnerTeam.toUpperCase()}!</h2>}
       </div>
 
@@ -141,13 +187,45 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
         </div>
       </div>
 
+      {challenge.status === 'upcoming' && (
+        <div style={{ marginTop: '5rem', textAlign: 'center' }}>
+          <div style={{ padding: '2rem', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: '20px', maxWidth: '400px', margin: '0 auto', backdropFilter: 'blur(12px)' }}>
+            <h3 style={{marginBottom: '1rem'}}>Waiting for Players...</h3>
+            <p style={{fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--accent-2)', marginBottom: '1rem'}}>
+              Red: {redTeam.members.length} | Blue: {blueTeam.members.length}
+            </p>
+            {isHost && (
+               <button 
+                  onClick={startChallenge}
+                  disabled={!canStart}
+                  style={{
+                    padding: '0.8rem 2rem', borderRadius: '8px', 
+                    background: !canStart ? '#555' : 'var(--accent-1)', 
+                    color: 'white', fontWeight: 'bold', border: 'none',
+                    cursor: !canStart ? 'not-allowed' : 'pointer'
+                  }}
+               >
+                 START CHALLENGE
+               </button>
+            )}
+            {!isHost && <p style={{color: '#aaa', fontSize: '0.9rem'}}>Waiting for the host to start the match...</p>}
+          </div>
+        </div>
+      )}
+
       {/* Camera Simulation */}
-      <div style={{ marginTop: '5rem', textAlign: 'center' }}>
-        <div style={{ padding: '2rem', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: '20px', maxWidth: '400px', margin: '0 auto', backdropFilter: 'blur(12px)' }}>
-          <h3 style={{marginBottom: '1rem'}}>AI Camera Simulator</h3>
-          <p style={{fontSize: '0.9rem', color: '#aaa', marginBottom: '2rem'}}>
-            Click start to simulate a performing squat.
-          </p>
+      {challenge.status !== 'upcoming' && (
+        <div style={{ marginTop: '5rem', textAlign: 'center' }}>
+          {countdown !== null ? (
+            <div style={{ fontSize: '6rem', fontWeight: 'bold', color: 'var(--accent-1)' }}>
+              {countdown === 0 ? "GO!" : countdown}
+            </div>
+          ) : (
+            <div style={{ padding: '2rem', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: '20px', maxWidth: '400px', margin: '0 auto', backdropFilter: 'blur(12px)' }}>
+              <h3 style={{marginBottom: '1rem'}}>AI Camera Simulator</h3>
+              <p style={{fontSize: '0.9rem', color: '#aaa', marginBottom: '2rem'}}>
+                Click start to simulate a performing squat.
+              </p>
           <button 
             disabled={challenge.status !== 'active'}
             onClick={performSquat}
@@ -168,8 +246,9 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
             {squatCount}
           </div>
         </div>
+        )}
       </div>
-
+      )}
     </div>
   );
 }

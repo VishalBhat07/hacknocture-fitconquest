@@ -35,27 +35,27 @@ const seed = async () => {
     const hostUser = users[0];
     const friends = users.slice(1);
 
+    // Start time 2 minutes from now, End time 30 mins from now
     const now = new Date();
-    // Start time 1 minute from now, End time 30 mins from now
-    const startTimeActive = new Date(now.getTime() - 60000); // already started
+    const startTimeUpcoming = new Date(now.getTime() + 2 * 60000); 
     const endTimeActive = new Date(now.getTime() + 30 * 60000);
 
     const challenge = new Challenge({
       title: "The 10k Squat Blitz 🚀",
-      startTime: startTimeActive,
+      startTime: startTimeUpcoming,
       endTime: endTimeActive,
-      status: 'active',
+      status: 'upcoming',
       targetSquats: 10000,
       host: hostUser._id,
       teams: [
         {
           teamName: "Red",
-          members: [users[0]._id, users[1]._id],
+          members: [],
           totalSquats: 0
         },
         {
           teamName: "Blue",
-          members: [users[2]._id, users[3]._id],
+          members: [],
           totalSquats: 0
         }
       ]
