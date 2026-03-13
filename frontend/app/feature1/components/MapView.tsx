@@ -379,6 +379,13 @@ export default function MapView() {
   const searchAbortRef = useRef<AbortController | null>(null);
   const userColorMapRef = useRef<Map<string, string>>(new Map());
   const lastConquestModeRef = useRef(false);
+  const trackerLayerRef = useRef<L.LayerGroup | null>(null);
+  const trackerWatchIdRef = useRef<number | null>(null);
+  const trackingStartMsRef = useRef<number | null>(null);
+  const trackingCoordsRef = useRef<[number, number][]>([]);
+  const trackingDistanceRef = useRef(0);
+  const trackingLastPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const trackingTickerRef = useRef<number | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -389,18 +396,189 @@ export default function MapView() {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isConquestMode, setIsConquestMode] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [dayKey, setDayKey] = useState(() => new Date().toDateString());
-  const [secondsToReset, setSecondsToReset] = useState(() => getSecondsUntilDayEnd(new Date()));
+  const [trackingActivityType, setTrackingActivityType] = useState<ActivityFilter>("walk");
+  const [isTracking, setIsTracking] = useState(false);
+  const [trackingDistanceMeters, setTrackingDistanceMeters] = useState(0);
+  const [trackingDurationSeconds, setTrackingDurationSeconds] = useState(0);
+  const [trackerStatus, setTrackerStatus] = useState("Choose mode above and press Start");
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const now = new Date();
-      setSecondsToReset(getSecondsUntilDayEnd(now));
-      const currentKey = now.toDateString();
-      setDayKey((prev) => (prev === currentKey ? prev : currentKey));
-    }, 1000);
-    return () => window.clearInterval(timer);
+  const resetTrackingRuntime = useCallback(() => {
+    trackingStartMsRef.current = null;
+    trackingCoordsRef.current = [];
+    trackingDistanceRef.current = 0;
+    trackingLastPosRef.current = null;
+    setTrackingDistanceMeters(0);
+    setTrackingDurationSeconds(0);
   }, []);
+
+  const stopTrackingWatcher = useCallback(() => {
+    if (trackerWatchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.clearWatch(trackerWatchIdRef.current);
+    }
+    trackerWatchIdRef.current = null;
+
+    if (trackingTickerRef.current !== null) {
+      window.clearInterval(trackingTickerRef.current);
+      trackingTickerRef.current = null;
+    }
+  }, []);
+
+  const drawTrackingPreview = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapReadyRef.current) return;
+
+    if (!trackerLayerRef.current) {
+      trackerLayerRef.current = L.layerGroup().addTo(map);
+    }
+
+    trackerLayerRef.current.clearLayers();
+    const coords = trackingCoordsRef.current;
+    if (!coords.length) return;
+
+    const latLngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+    const color = trackingActivityType === "walk" ? "#22c55e" : "#06b6d4";
+
+    L.polyline(latLngs, {
+      color,
+      weight: 5,
+      opacity: 0.95,
+      lineCap: "round",
+      lineJoin: "round",
+      dashArray: trackingActivityType === "cycle" ? "10 6" : undefined,
+    }).addTo(trackerLayerRef.current);
+
+    L.circleMarker(latLngs[0], {
+      radius: 6,
+      color: "#fff",
+      fillColor: color,
+      fillOpacity: 1,
+      weight: 2,
+    }).addTo(trackerLayerRef.current);
+
+    const end = latLngs[latLngs.length - 1];
+    L.circleMarker(end, {
+      radius: 7,
+      color,
+      fillColor: "#fff",
+      fillOpacity: 1,
+      weight: 2,
+    }).addTo(trackerLayerRef.current);
+  }, [trackingActivityType]);
+
+  const startTracking = useCallback(() => {
+    if (isTracking) return;
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setTrackerStatus("Geolocation is not supported in this browser");
+      return;
+    }
+
+    const mode = filter;
+    setTrackingActivityType(mode);
+    stopTrackingWatcher();
+    resetTrackingRuntime();
+    setTrackerStatus(`Waiting for GPS signal (${mode})...`);
+
+    trackingStartMsRef.current = Date.now();
+    setIsTracking(true);
+
+    trackingTickerRef.current = window.setInterval(() => {
+      if (!trackingStartMsRef.current) return;
+      const elapsed = Math.floor((Date.now() - trackingStartMsRef.current) / 1000);
+      setTrackingDurationSeconds(elapsed);
+    }, 1000);
+
+    trackerWatchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        const last = trackingLastPosRef.current;
+        if (last) {
+          const segment = turf.distance([last.lng, last.lat], [lng, lat], { units: "kilometers" }) * 1000;
+          if (Number.isFinite(segment) && segment > 0) {
+            trackingDistanceRef.current += segment;
+          }
+        }
+
+        trackingLastPosRef.current = { lat, lng };
+        trackingCoordsRef.current.push([lng, lat]);
+        setTrackingDistanceMeters(trackingDistanceRef.current);
+        setTrackerStatus(`Tracking ${mode}...`);
+        drawTrackingPreview();
+      },
+      (err) => {
+        setTrackerStatus(err.message || "Unable to read GPS location");
+        setIsTracking(false);
+        stopTrackingWatcher();
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      },
+    );
+  }, [drawTrackingPreview, filter, isTracking, resetTrackingRuntime, stopTrackingWatcher]);
+
+  const stopAndSaveTracking = useCallback(async () => {
+    if (!isTracking) return;
+
+    setIsTracking(false);
+    stopTrackingWatcher();
+
+    const token = localStorage.getItem("fit_token");
+    if (!token) {
+      setTrackerStatus("Login expired. Please login again.");
+      return;
+    }
+
+    const startedAt = trackingStartMsRef.current;
+    const coords = [...trackingCoordsRef.current];
+    const endedAt = Date.now();
+
+    if (!startedAt || coords.length < 2) {
+      setTrackerStatus("Track is too short. Move a bit more before stopping.");
+      resetTrackingRuntime();
+      drawTrackingPreview();
+      return;
+    }
+
+    try {
+      setTrackerStatus("Saving activity...");
+
+      const res = await fetch(`${API_URL}/api/activities`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "ngrok-skip-browser-warning": "true",
+        },
+        body: JSON.stringify({
+          activityType: trackingActivityType,
+          startTime: new Date(startedAt).toISOString(),
+          endTime: new Date(endedAt).toISOString(),
+          route: {
+            type: "LineString",
+            coordinates: coords,
+          },
+        }),
+      });
+
+      const out = await res.json();
+      if (!res.ok) {
+        throw new Error(out?.error || "Failed to save activity");
+      }
+
+      setActivities((prev) => [out as Activity, ...prev]);
+      setTrackerStatus("Activity saved successfully");
+      resetTrackingRuntime();
+      drawTrackingPreview();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save activity";
+      setTrackerStatus(msg);
+    }
+  }, [drawTrackingPreview, isTracking, resetTrackingRuntime, stopTrackingWatcher, trackingActivityType]);
 
   // ========================================================================
   // FETCH
@@ -989,6 +1167,17 @@ export default function MapView() {
 
   useEffect(() => () => { if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current); if (searchAbortRef.current) searchAbortRef.current.abort("unmount"); }, []);
 
+  useEffect(() => {
+    return () => {
+      stopTrackingWatcher();
+      if (trackerLayerRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.removeLayer(trackerLayerRef.current);
+        } catch {}
+      }
+    };
+  }, [stopTrackingWatcher]);
+
   // ========================================================================
   // RENDER
   // ========================================================================
@@ -1053,10 +1242,54 @@ export default function MapView() {
         <div className="map-filter-wrap">
           <div className="map-filter-group" style={{ gridTemplateColumns: "1fr 1fr" }}>
             {(["walk", "cycle"] as const).map((t) => (
-              <button key={t} type="button" className={`map-filter-tab ${filter === t ? "map-filter-tab--active" : ""}`} onClick={() => setFilter(t)}>
+              <button
+                key={t}
+                type="button"
+                disabled={isTracking}
+                className={`map-filter-tab ${filter === t ? "map-filter-tab--active" : ""}`}
+                onClick={() => setFilter(t)}
+              >
                 {t === "walk" ? "🚶 By Walk" : "🚴 By Cycle"}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="map-tracker-wrap">
+          <div className="map-tracker-panel">
+            <div className="map-tracker-header">
+              <span className="map-tracker-title">Live GPS Tracker</span>
+              <span className={`map-tracker-chip ${isTracking ? "map-tracker-chip--live" : ""}`}>
+                {isTracking ? "Recording" : "Ready"}
+              </span>
+            </div>
+
+            <div className="map-tracker-actions-row">
+              {!isTracking ? (
+                <button
+                  type="button"
+                  onClick={startTracking}
+                  className="map-tracker-action-btn map-tracker-action-btn--start"
+                >
+                  ▶ Start {filter}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={stopAndSaveTracking}
+                  className="map-tracker-action-btn map-tracker-action-btn--stop"
+                >
+                  ■ Stop and Save
+                </button>
+              )}
+
+              <div className="map-tracker-metric-box">
+                <div className="map-tracker-metric-value">{fmtDist(trackingDistanceMeters)}</div>
+                <div className="map-tracker-metric-sub">{fmtDur(trackingDurationSeconds)}</div>
+              </div>
+            </div>
+
+            <div className="map-tracker-status">{trackerStatus}</div>
           </div>
         </div>
       </div>
