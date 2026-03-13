@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ActivityMode = "walk" | "cycle";
 
@@ -34,54 +34,13 @@ function formatDuration(seconds: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    const next = line[i + 1];
-
-    if (ch === '"' && inQuotes && next === '"') {
-      cur += '"';
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (ch === "," && !inQuotes) {
-      out.push(cur.trim());
-      cur = "";
-      continue;
-    }
-    cur += ch;
+async function readJsonSafe(res: Response): Promise<{ data: unknown; text: string }> {
+  const text = await res.text();
+  try {
+    return { data: JSON.parse(text), text };
+  } catch {
+    return { data: null, text };
   }
-
-  out.push(cur.trim());
-  return out;
-}
-
-function parseDurationToSec(value: string): number {
-  if (!value) return 0;
-  if (/^\d+(\.\d+)?$/.test(value)) return Number(value);
-  const parts = value.split(":").map((p) => Number(p));
-  if (parts.some((n) => !Number.isFinite(n))) return 0;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return 0;
-}
-
-function parseDistanceToMeters(value: string): number {
-  if (!value) return 0;
-  const normalized = value.trim().toLowerCase();
-  const numeric = Number(normalized.replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(numeric)) return 0;
-  if (normalized.includes("mi")) return numeric * 1609.34;
-  if (normalized.includes("m") && !normalized.includes("km")) return numeric;
-  return numeric * 1000;
 }
 
 function getActivityUserId(activity: Activity): string | null {
@@ -99,8 +58,8 @@ export default function Home() {
   const [username, setUsername] = useState("vishal");
   const [password, setPassword] = useState("password123");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [importState, setImportState] = useState<"idle" | "importing" | "done" | "error">("idle");
-  const [importMessage, setImportMessage] = useState("Upload your Strava CSV to sync runs and rides into FitConquest.");
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "done" | "error">("idle");
+  const [syncMessage, setSyncMessage] = useState("Connect Strava to import activities directly from your account.");
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   const loadDashboard = useCallback(async () => {
@@ -151,6 +110,67 @@ export default function Home() {
 
   useEffect(() => {
     loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const runSyncFromOAuthCode = async () => {
+      const token = localStorage.getItem("fit_token");
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      const state = params.get("state");
+      const error = params.get("error");
+
+      if (!token) return;
+
+      if (error) {
+        setSyncState("error");
+        setSyncMessage("Strava authorization was cancelled or denied.");
+        return;
+      }
+
+      if (!code || state !== "fitconquest") return;
+
+      try {
+        setSyncState("syncing");
+        setSyncMessage("Syncing activities from Strava...");
+
+        const res = await fetch(`${API_URL}/api/activities/strava/sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+          },
+          body: JSON.stringify({ code }),
+        });
+
+        const { data, text } = await readJsonSafe(res);
+        const out = data as { error?: string; imported?: number; skipped?: number } | null;
+        if (!res.ok) {
+          throw new Error(out?.error || (text.includes("Cannot") ? "Backend route not found. Restart backend server and try again." : "Strava sync failed"));
+        }
+
+        setSyncState("done");
+        setSyncMessage(`Strava sync complete: ${out.imported ?? 0} imported, ${out.skipped ?? 0} skipped.`);
+
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete("code");
+        clean.searchParams.delete("state");
+        clean.searchParams.delete("scope");
+        clean.searchParams.delete("error");
+        window.history.replaceState({}, "", clean.toString());
+
+        await loadDashboard();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Strava sync failed";
+        setSyncState("error");
+        setSyncMessage(message);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      runSyncFromOAuthCode();
+    }
   }, [loadDashboard]);
 
   useEffect(() => {
@@ -210,112 +230,51 @@ export default function Home() {
     return aggregate;
   }, [userActivities]);
 
-  const modeStats = useMemo(() => {
-    const now = new Date();
-    const nowTs = now.getTime();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const msPerDay = 86400000;
-    const startOfWeek = startOfToday - 6 * msPerDay;
-    const startOfMonth = startOfToday - 29 * msPerDay;
-
-    const base = {
-      today: { walk: 0, cycle: 0 },
-      week: { walk: 0, cycle: 0 },
-      month: { walk: 0, cycle: 0 },
-      overall: { walk: 0, cycle: 0 },
-    };
-
-    userActivities.forEach((a) => {
-      const ts = new Date(a.startTime).getTime();
-      if (!Number.isFinite(ts) || ts > nowTs) return;
-
-      const dist = Number(a.distanceMeters) || 0;
-      const mode: ActivityMode = a.activityType === "cycle" ? "cycle" : "walk";
-
-      base.overall[mode] += dist;
-      if (ts >= startOfToday) base.today[mode] += dist;
-      if (ts >= startOfWeek) base.week[mode] += dist;
-      if (ts >= startOfMonth) base.month[mode] += dist;
-    });
-
-    return base;
-  }, [userActivities]);
-
-  const handleStravaImport = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const token = typeof window !== "undefined" ? localStorage.getItem("fit_token") : null;
-    if (!token) {
-      setImportState("error");
-      setImportMessage("Please login first to import Strava data.");
-      return;
-    }
-
+  const handleStravaConnect = async () => {
     try {
-      setImportState("importing");
-      setImportMessage("Reading and mapping Strava CSV...");
+      const token = typeof window !== "undefined" ? localStorage.getItem("fit_token") : null;
+      if (!token) {
+        setSyncState("error");
+        setSyncMessage("Please login first to connect Strava.");
+        return;
+      }
 
-      const raw = await file.text();
-      const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      if (lines.length < 2) throw new Error("CSV looks empty.");
+      const candidates = [
+        `${API_URL}/api/activities/strava/connect-url?state=fitconquest`,
+        `${API_URL}/api/activities/strava/connect?state=fitconquest`,
+      ];
 
-      const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
-      const idxType = header.findIndex((h) => h.includes("activity type") || h === "type");
-      const idxDistance = header.findIndex((h) => h.includes("distance"));
-      const idxElapsed = header.findIndex((h) => h.includes("elapsed time") || h.includes("moving time") || h === "duration");
-      const idxDate = header.findIndex((h) => h.includes("activity date") || h.includes("start date") || h.includes("date"));
+      let out: { url?: string } | null = null;
+      let lastError = "Unable to start Strava connection";
 
-      const parsed = lines.slice(1).map((line) => {
-        const cols = parseCsvLine(line);
-        const rawType = idxType >= 0 ? (cols[idxType] || "").toLowerCase() : "run";
-        const rawDistance = idxDistance >= 0 ? cols[idxDistance] || "" : "0";
-        const rawElapsed = idxElapsed >= 0 ? cols[idxElapsed] || "" : "0";
-        const rawDate = idxDate >= 0 ? cols[idxDate] || "" : "";
+      for (const url of candidates) {
+        const res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+          },
+        });
 
-        const activityType: ActivityMode = rawType.includes("ride") || rawType.includes("cycle") ? "cycle" : "walk";
-        const distanceMeters = parseDistanceToMeters(rawDistance);
-        const durationSeconds = parseDurationToSec(rawElapsed);
-        const startTime = rawDate ? new Date(rawDate) : new Date();
-        const endTime = new Date(startTime.getTime() + durationSeconds * 1000);
+        const parsed = await readJsonSafe(res);
+        const parsedData = parsed.data as { url?: string; error?: string } | null;
 
-        if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) return null;
-        if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return null;
+        if (res.ok && parsedData?.url) {
+          out = parsedData;
+          break;
+        }
 
-        return {
-          activityType,
-          distanceMeters,
-          durationSeconds,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-        };
-      }).filter(Boolean);
+        lastError = parsedData?.error || (parsed.text.includes("Cannot") ? "Strava route missing on backend. Restart backend server." : lastError);
+      }
 
-      if (!parsed.length) throw new Error("No valid activities found in CSV.");
+      if (!out?.url) {
+        throw new Error(lastError);
+      }
 
-      setImportMessage(`Importing ${parsed.length} activities to FitConquest...`);
-
-      const res = await fetch(`${API_URL}/api/activities/import/strava`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "ngrok-skip-browser-warning": "true",
-        },
-        body: JSON.stringify({ activities: parsed }),
-      });
-
-      const out = await res.json();
-      if (!res.ok) throw new Error(out?.error || "Import failed");
-
-      setImportState("done");
-      setImportMessage(`Strava sync complete. Imported ${out.imported || parsed.length} activities.`);
-      await loadDashboard();
+      window.location.href = out.url;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Import failed";
-      setImportState("error");
-      setImportMessage(message);
-    } finally {
-      e.target.value = "";
+      const message = err instanceof Error ? err.message : "Unable to connect Strava";
+      setSyncState("error");
+      setSyncMessage(message);
     }
   };
 
@@ -332,20 +291,20 @@ export default function Home() {
       });
 
       if (!res.ok) {
-        setImportState("error");
-        setImportMessage("Invalid login. Try demo users with password123.");
+        setSyncState("error");
+        setSyncMessage("Invalid login. Try demo users with password123.");
         return;
       }
 
       const data = await res.json();
       localStorage.setItem("fit_token", data.token);
-      setImportState("idle");
-      setImportMessage("Upload your Strava CSV to sync runs and rides into FitConquest.");
+      setSyncState("idle");
+      setSyncMessage("Connect Strava to import activities directly from your account.");
       await loadDashboard();
     } catch (err) {
       console.error("Login failed", err);
-      setImportState("error");
-      setImportMessage("Login failed. Please try again.");
+      setSyncState("error");
+      setSyncMessage("Login failed. Please try again.");
     }
   };
 
@@ -428,6 +387,18 @@ export default function Home() {
               <div style={{ fontSize: "0.86rem", color: "#fff", fontWeight: 700 }}>{user.username}</div>
               <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>Signed in</div>
             </div>
+            <div style={{ padding: "0.65rem 0.85rem", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              <button
+                type="button"
+                onClick={handleStravaConnect}
+                style={{ width: "100%", textAlign: "left", padding: "0.55rem 0.7rem", borderRadius: 8, border: "1px solid rgba(255,185,122,0.45)", background: "linear-gradient(135deg, #ff7d3a, #ff914d)", color: "#111", fontWeight: 800, cursor: "pointer" }}
+              >
+                Connect Strava
+              </button>
+              <p style={{ marginTop: "0.45rem", fontSize: "0.72rem", color: syncState === "error" ? "#ffb4b4" : syncState === "done" ? "#91ffc4" : "rgba(255,255,255,0.62)", lineHeight: 1.35 }}>
+                {syncMessage}
+              </p>
+            </div>
             <button
               type="button"
               onClick={handleLogout}
@@ -479,84 +450,6 @@ export default function Home() {
             <h3>{loading ? "..." : formatDistance(stats.overall)}</h3>
             <span>Total conquered distance</span>
           </article>
-        </div>
-      </section>
-
-      <section className="home-side-panels" id="import-and-profile" style={{ position: "relative", zIndex: 1, maxWidth: 1160, margin: "0 auto", padding: "1rem 1.5rem 1.25rem", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: "1rem" }}>
-        <div className="panel-card" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--card-border)", borderRadius: 20, padding: "1.2rem" }}>
-          <div className="panel-title-row">
-            <h3>Profile Snapshot</h3>
-            <span className="panel-tag">Live</span>
-          </div>
-          <div className="profile-shell">
-            <div className="profile-avatar">{user?.username?.slice(0, 2).toUpperCase() || "FC"}</div>
-            <div>
-              <h4>{user?.username || "Guest Athlete"}</h4>
-              <p>{user ? "Token authenticated" : "Login in Feature pages to sync your identity"}</p>
-            </div>
-          </div>
-          <div className="profile-stats-row">
-            <div><strong>{formatDistance(stats.overall)}</strong><span>Career</span></div>
-            <div><strong>{formatDistance(stats.month)}</strong><span>Month</span></div>
-            <div><strong>{formatDistance(stats.today)}</strong><span>Today</span></div>
-          </div>
-        </div>
-
-        <div className="panel-card panel-card--strava" style={{ background: "radial-gradient(120% 120% at 85% -5%, rgba(255,132,52,0.2) 0%, rgba(255,132,52,0) 60%), rgba(255,255,255,0.04)", border: "1px solid var(--card-border)", borderRadius: 20, padding: "1.2rem" }}>
-          <div className="panel-title-row">
-            <h3>Import from Strava</h3>
-            <span className="panel-tag panel-tag--strava">CSV Sync</span>
-          </div>
-          <p className="import-copy">
-            Upload your Strava exported activities CSV. We map distance, duration, and date, then sync it into your dashboard and map.
-          </p>
-          <label className="import-dropzone">
-            <input type="file" accept=".csv,text/csv" onChange={handleStravaImport} />
-            <span>{importState === "importing" ? "Importing..." : "Choose Strava CSV"}</span>
-            <small>Expected columns: Activity Type, Distance, Elapsed Time, Activity Date</small>
-          </label>
-          <p className={`import-status import-status--${importState}`}>{importMessage}</p>
-        </div>
-      </section>
-
-      <section style={{ position: "relative", zIndex: 1, maxWidth: 1160, margin: "0 auto", padding: "0 1.5rem 2rem" }}>
-        <div style={{
-          background: "linear-gradient(160deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015))",
-          border: "1px solid var(--card-border)",
-          borderRadius: 20,
-          padding: "1.2rem",
-          backdropFilter: "blur(12px)",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", gap: "0.8rem", flexWrap: "wrap" }}>
-            <h3 style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: "-0.01em" }}>Walk vs Cycle Breakdown</h3>
-            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.25)", padding: "0.2rem 0.55rem", borderRadius: 999 }}>Distance Split</span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.55rem", color: "rgba(255,255,255,0.55)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
-            <span>Window</span>
-            <span>Walk</span>
-            <span>Cycle</span>
-          </div>
-
-          {[
-            { key: "today", label: "Today" },
-            { key: "week", label: "Last 7 Days" },
-            { key: "month", label: "Last 30 Days" },
-            { key: "overall", label: "All Time" },
-          ].map((row) => {
-            const k = row.key as "today" | "week" | "month" | "overall";
-            return (
-              <div key={row.key} style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "0.75rem", marginBottom: "0.55rem" }}>
-                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "0.65rem 0.75rem", fontSize: "0.88rem", color: "rgba(255,255,255,0.9)", fontWeight: 600 }}>{row.label}</div>
-                <div style={{ background: "rgba(99,102,241,0.11)", border: "1px solid rgba(99,102,241,0.32)", borderRadius: 12, padding: "0.65rem 0.75rem", fontSize: "0.92rem", color: "#cfd4ff", fontWeight: 700 }}>
-                  {loading ? "..." : `🚶 ${formatDistance(modeStats[k].walk)}`}
-                </div>
-                <div style={{ background: "rgba(6,182,212,0.11)", border: "1px solid rgba(6,182,212,0.32)", borderRadius: 12, padding: "0.65rem 0.75rem", fontSize: "0.92rem", color: "#b4f1ff", fontWeight: 700 }}>
-                  {loading ? "..." : `🚴 ${formatDistance(modeStats[k].cycle)}`}
-                </div>
-              </div>
-            );
-          })}
         </div>
       </section>
 
