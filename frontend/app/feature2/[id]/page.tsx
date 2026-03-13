@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, use } from "react";
 import io from "socket.io-client";
 import Link from "next/link";
+import SquatTracker from "./SquatTracker";
 
 let socket: any;
 const AI_ENGINE_URL = "http://localhost:5050";
@@ -100,38 +101,54 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
     });
   };
 
-  const startCamera = async (exercise: "squat" | "pushup") => {
-    try {
-      setActiveExercise(exercise);
-      activeExerciseRef.current = exercise;
+  // ── Start camera / AI engine ─────────────────────────────────────────────
+  const startCamera = async () => {
+    setCameraActive(true);
+    prevCountRef.current = 0;
+    setRepCount(0);
 
-      // Record team workout start
-      const myTeam = getMyTeam();
-      if (myTeam && !myTeam.startedWorkoutAt) {
-        socket.emit("team_start_workout", { challengeId, teamId: myTeam._id });
+    if (exerciseType === 'pushup') {
+      try {
+        await fetch(`${AI_ENGINE_URL}/exercise`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exercise: "pushup" }),
+        });
+        await fetch(`${AI_ENGINE_URL}/reset`, { method: "POST" });
+        
+        pollRef.current = setInterval(async () => {
+          try {
+            const res = await fetch(`${AI_ENGINE_URL}/stats`);
+            if (res.ok) {
+              const data = await res.json();
+              setAiStats(data);
+              setRepCount(data.count);
+
+              const newReps = data.count - prevCountRef.current;
+              if (newReps > 0) {
+                emitRep(newReps);
+                prevCountRef.current = data.count;
+              }
+            }
+          } catch (e) { }
+        }, 500);
+      } catch (e) {
+        console.error("Failed to connect to AI Engine:", e);
+        alert("Could not connect to AI Engine.");
       }
-
-      await fetch(`${AI_ENGINE_URL}/exercise`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ exercise }) });
-      await fetch(`${AI_ENGINE_URL}/reset`, { method: "POST" });
-      setCameraActive(true);
-      prevCountRef.current = 0;
-
-      pollRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`${AI_ENGINE_URL}/stats`);
-          if (res.ok) {
-            const data = await res.json();
-            setAiStats(data);
-            const newReps = data.count - prevCountRef.current;
-            if (newReps > 0) { emitRep(newReps); prevCountRef.current = data.count; }
-          }
-        } catch (e) {}
-      }, 500);
-    } catch (e) {
-      alert("Could not connect to AI Engine. Run: python app.py");
     }
   };
 
+  const handleSquatRep = (count: number) => {
+    emitRep(count);
+  };
+
+  const handleSquatStats = (stats: any) => {
+    setAiStats(stats);
+    setRepCount(stats.count);
+  };
+
+  // ── Stop camera ──────────────────────────────────────────────────────────
   const stopCamera = () => {
     setCameraActive(false);
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -359,12 +376,55 @@ export default function Arena({ params }: { params: Promise<{ id: string }> }) {
 
                 {/* Team name + progress bar */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block' }}></span>
-                    <span style={{ fontWeight: 'bold', color }}>
-                      Team {team.teamName}
-                      {isMyTeam && <span style={{ fontSize: '0.7rem', color: '#aaa', marginLeft: '0.5rem' }}>(You)</span>}
-                    </span>
+                  {/* Live Video Feed / AI Tracker */}
+                  <div style={{
+                    position: 'relative',
+                    borderRadius: '16px',
+                    overflow: 'hidden',
+                    border: '2px solid rgba(99,102,241,0.3)',
+                    marginBottom: '1.5rem',
+                    background: '#000',
+                  }}>
+                    {exerciseType === 'squat' ? (
+                      <SquatTracker 
+                        onRep={handleSquatRep} 
+                        onStatsUpdate={handleSquatStats} 
+                      />
+                    ) : (
+                      <>
+                        <img
+                          src={`${AI_ENGINE_URL}/video_feed`}
+                          alt="AI Exercise Detection"
+                          style={{
+                            width: '100%',
+                            maxHeight: '480px',
+                            objectFit: 'contain',
+                            display: 'block',
+                          }}
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          top: '12px',
+                          right: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 12px',
+                          borderRadius: '20px',
+                          background: 'rgba(255,50,50,0.85)',
+                          color: '#fff',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold',
+                        }}>
+                          <span style={{
+                            width: '8px', height: '8px', borderRadius: '50%',
+                            background: '#fff',
+                            animation: 'pulse 1.5s infinite',
+                          }}></span>
+                          LIVE
+                        </div>
+                      </>
+                    )}
                   </div>
                   {/* Progress bars */}
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
