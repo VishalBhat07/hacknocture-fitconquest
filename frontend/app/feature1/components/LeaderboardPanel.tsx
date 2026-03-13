@@ -2,6 +2,15 @@
 
 import html2canvas from "html2canvas";
 import { useState, useMemo, useEffect, useRef } from "react";
+import * as turf from "@turf/turf";
+// Compute convex hull from route points
+function getConvexHull(points: Array<{ lat: number; lng: number }>): Array<{ lat: number; lng: number }> {
+  if (!points || points.length < 3) return [];
+  const turfPoints = turf.featureCollection(points.map(p => turf.point([p.lng, p.lat])));
+  const hull = turf.convex(turfPoints);
+  if (!hull || !hull.geometry || !Array.isArray(hull.geometry.coordinates[0])) return [];
+  return hull.geometry.coordinates[0].map(([lng, lat]) => ({ lat, lng }));
+}
 import "../feature1.css";
 
 // ============================================================================
@@ -307,10 +316,11 @@ export default function LeaderboardPanel() {
     return "";
   };
 
+  // Use currentUserId for Instagram post logic to match backend
   const loggedInUserStats = useMemo(() => {
-    if (!loggedInUserId) return null;
-    return sortedUsers.find((user) => user.id === loggedInUserId) || null;
-  }, [loggedInUserId, sortedUsers]);
+    if (!currentUserId) return null;
+    return sortedUsers.find((user) => user.id === currentUserId) || null;
+  }, [currentUserId, sortedUsers]);
 
   const topThreeUsers = useMemo(() => sortedUsers.slice(0, 3), [sortedUsers]);
 
@@ -549,8 +559,35 @@ export default function LeaderboardPanel() {
 
       {sharePayload && (
         <div className="ig-share-preview-block">
-          <h3>Instagram Share Preview</h3>
-          <p>{sharePayload.caption}</p>
+          <h3 style={{marginBottom: 8}}>Instagram Share Preview</h3>
+          <div style={{
+            background: '#23263a',
+            borderRadius: 14,
+            padding: '1.3rem 1.2rem',
+            margin: '1rem 0 1.5rem',
+            color: '#fff',
+            fontSize: '1.13rem',
+            fontWeight: 600,
+            boxShadow: '0 2px 12px #0003',
+            border: '1.5px solid #3b3f5c',
+            maxWidth: 700,
+            wordBreak: 'break-word',
+            lineHeight: 1.6,
+            letterSpacing: 0.01,
+            textShadow: '0 1px 2px #0006',
+            cursor: 'pointer',
+            userSelect: 'all',
+          }}
+            title="Click to copy caption"
+            onClick={() => {
+              if (sharePayload.caption) {
+                navigator.clipboard.writeText(sharePayload.caption);
+              }
+            }}
+          >
+            {sharePayload.caption || <span style={{color:'#f87171'}}>No caption generated.</span>}
+            <span style={{display:'block',fontSize:'0.95em',color:'#38bdf8',marginTop:8,fontWeight:400}}>Click to copy caption for Instagram</span>
+          </div>
         </div>
       )}
 
@@ -575,6 +612,7 @@ export default function LeaderboardPanel() {
                   className="ig-share-route-svg"
                   viewBox="0 0 1012 380"
                   preserveAspectRatio="none"
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
                 >
                   <defs>
                     <linearGradient id="ig-route" x1="0" y1="0" x2="1" y2="0">
@@ -584,14 +622,47 @@ export default function LeaderboardPanel() {
                     </linearGradient>
                   </defs>
 
-                  {isClosedLoop(sharePayload.shareData.routePoints, sharePayload.shareData.mapBox) && (
-                    <polygon
-                      points={buildRoutePolyline(sharePayload.shareData.routePoints, sharePayload.shareData.mapBox, 1012, 380)}
-                      fill="rgba(236, 72, 153, 0.28)"
-                      stroke="none"
-                    />
-                  )}
 
+                  {/* Convex hull polygon overlay (styled like provided image) */}
+                  {(() => {
+                    // For demo: support multiple hulls if needed (future-proofing)
+                    // For now, only one hull from routePoints
+                    const hulls = [];
+                    const mainHull = getConvexHull(sharePayload.shareData.routePoints);
+                    if (mainHull.length > 2) hulls.push(mainHull);
+
+                    // Color palette for hulls
+                    const hullColors = [
+                      'rgba(34,197,94,0.18)', // green
+                      'rgba(59,130,246,0.18)', // blue
+                      'rgba(244,63,94,0.18)', // red
+                      'rgba(251,191,36,0.18)', // yellow
+                      'rgba(139,92,246,0.18)', // purple
+                      'rgba(16,185,129,0.18)', // teal
+                      'rgba(236,72,153,0.18)', // pink
+                    ];
+
+                    if (hulls.length > 0) {
+                      return hulls.map((hull, idx) => {
+                        const hullPoints = buildRoutePolyline(hull, sharePayload.shareData.mapBox, 1012, 380);
+                        return (
+                          <polygon
+                            key={idx}
+                            points={hullPoints}
+                            fill={hullColors[idx % hullColors.length]}
+                            stroke="#22223b"
+                            strokeWidth="4"
+                            style={{filter:'drop-shadow(0 2px 8px #22223b44)'}}
+                          />
+                        );
+                      });
+                    }
+                    return (
+                      <text x="50%" y="50%" textAnchor="middle" fill="#f87171" fontSize="22" fontWeight="bold">No hull</text>
+                    );
+                  })()}
+
+                  {/* Route polyline */}
                   <polyline
                     points={buildRoutePolyline(sharePayload.shareData.routePoints, sharePayload.shareData.mapBox, 1012, 380)}
                     fill="none"
