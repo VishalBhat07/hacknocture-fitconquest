@@ -32,7 +32,7 @@ interface Activity {
   };
 }
 
-type ActivityFilter = "all" | "walk" | "cycle";
+type ActivityFilter = "walk" | "cycle";
 
 interface SearchSuggestion {
   id: number;
@@ -91,10 +91,51 @@ function fmtArea(sqm: number) {
 function actIcon(type: string) { return type === "walk" ? "🚶" : type === "cycle" ? "🚴" : "🏅"; }
 function routeLabel(type: string) { return type === "Polygon" ? "Loop" : "A → B"; }
 
-// Logic to resolve overlaps based on distance
+function getConquestStrength(activity: Activity, maxArea: number, maxDistance: number): number {
+  const areaPart = (activity.areaSquareMeters || 0) / maxArea;
+  const distancePart = (activity.distanceMeters || 0) / maxDistance;
+  // Favor area ownership, but reward long routes too.
+  return areaPart * 0.7 + distancePart * 0.3;
+}
+
+function keepLargestPolygonChunk(geometry: any): any {
+  if (!geometry || geometry.type !== "MultiPolygon") return geometry;
+
+  const [largest] = [...geometry.coordinates].sort((a: any, b: any) => {
+    const areaB = turf.area(turf.polygon(b));
+    const areaA = turf.area(turf.polygon(a));
+    return areaB - areaA;
+  });
+
+  if (!largest) return null;
+  return { type: "Polygon", coordinates: largest };
+}
+
+// Logic to resolve overlaps with combined area+distance priority.
 function resolveConquest(activities: Activity[]): (Activity & { displayRoute?: any })[] {
-  // 1. Sort by distance descending (strongest conquers first)
-  const sorted = [...activities].sort((a, b) => b.distanceMeters - a.distanceMeters);
+  const polygonActivities = activities.filter((a) => a.route.type === "Polygon");
+  const maxArea = Math.max(...polygonActivities.map((a) => a.areaSquareMeters || 0), 1);
+  const maxDistance = Math.max(...polygonActivities.map((a) => a.distanceMeters || 0), 1);
+
+  // Stronger polygon gets full claim; weaker one keeps only non-overlap remainder.
+  const sorted = [...activities].sort((a, b) => {
+    const aPoly = a.route.type === "Polygon";
+    const bPoly = b.route.type === "Polygon";
+    if (aPoly && !bPoly) return -1;
+    if (!aPoly && bPoly) return 1;
+    if (!aPoly && !bPoly) return 0;
+
+    const scoreDiff = getConquestStrength(b, maxArea, maxDistance) - getConquestStrength(a, maxArea, maxDistance);
+    if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+
+    const areaDiff = (b.areaSquareMeters || 0) - (a.areaSquareMeters || 0);
+    if (areaDiff !== 0) return areaDiff;
+
+    const distanceDiff = (b.distanceMeters || 0) - (a.distanceMeters || 0);
+    if (distanceDiff !== 0) return distanceDiff;
+
+    return new Date(b.startTime).getTime() - new Date(a.startTime).getTime();
+  });
   
   const results: (Activity & { displayRoute?: any })[] = [];
   let combinedClaimed: any = null;
@@ -115,8 +156,15 @@ function resolveConquest(activities: Activity[]): (Activity & { displayRoute?: a
         // Find the difference: Current - CombinedClaimed
         const diff = turf.difference(turf.featureCollection([currentPoly, combinedClaimed]));
         
-        if (diff) {
-          results.push({ ...activity, displayRoute: diff.geometry });
+        if (diff && diff.geometry) {
+          const displayRoute = keepLargestPolygonChunk(diff.geometry);
+
+          if (displayRoute) {
+            results.push({ ...activity, displayRoute });
+          } else {
+            results.push({ ...activity, displayRoute: null });
+          }
+
           combinedClaimed = turf.union(turf.featureCollection([combinedClaimed, currentPoly]));
         } else {
           // Completely conquered!
@@ -147,6 +195,22 @@ function hexToRgba(hex: string, a: number) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+function getUserInitials(name: string) {
+  const parts = (name || "Unknown").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -160,15 +224,17 @@ export default function MapView() {
   const searchTimerRef = useRef<number | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const userColorMapRef = useRef<Map<string, string>>(new Map());
+  const lastConquestModeRef = useRef(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [filter, setFilter] = useState<ActivityFilter>("all");
+  const [filter, setFilter] = useState<ActivityFilter>("walk");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchSuggestions, setSearchSuggestions] = useState<SearchSuggestion[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isConquestMode, setIsConquestMode] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // ========================================================================
   // FETCH
@@ -192,12 +258,34 @@ export default function MapView() {
     })();
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem("fit_token");
+        if (!token) return;
+
+        const res = await fetch(`${API_URL}/api/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+          },
+        });
+        if (!res.ok) return;
+
+        const user = await res.json();
+        const uid = typeof user?._id === "string" ? user._id : typeof user?.id === "string" ? user.id : null;
+        setCurrentUserId(uid);
+      } catch (e) {
+        console.error("Failed to resolve current user", e);
+      }
+    })();
+  }, []);
+
   // ========================================================================
   // FILTERED
   // ========================================================================
 
   const filtered = useMemo(() => {
-    if (filter === "all") return activities;
     return activities.filter((a) => a.activityType === filter);
   }, [activities, filter]);
 
@@ -222,9 +310,11 @@ export default function MapView() {
   // DRAW — handle LineString vs Polygon differently
   // ========================================================================
 
-  const drawActivities = useCallback(() => {
+  const drawActivities = useCallback((preserveViewport = false) => {
     const map = mapInstanceRef.current;
     if (!map || !mapReadyRef.current) return;
+    const conquestToggled = lastConquestModeRef.current !== isConquestMode;
+    const zoom = map.getZoom();
 
     // Clear
     layersRef.current.forEach((l) => { try { map.removeLayer(l); } catch {} });
@@ -232,9 +322,31 @@ export default function MapView() {
     if (filtered.length === 0) return;
 
     const allLatLngs: [number, number][] = [];
+    const userBadges = new Map<string, {
+      uid: string;
+      username: string;
+      color: string;
+      isCurrent: boolean;
+      score: number;
+      latLng: [number, number];
+    }>();
 
     // Apply Conquest logic if enabled
     const displayActivities = isConquestMode ? resolveConquest(filtered) : filtered;
+
+    const updateUserBadge = (
+      uid: string,
+      username: string,
+      color: string,
+      latLng: [number, number],
+      score: number,
+      isCurrent: boolean,
+    ) => {
+      const existing = userBadges.get(uid);
+      if (!existing || score > existing.score) {
+        userBadges.set(uid, { uid, username, color, score, latLng, isCurrent });
+      }
+    };
 
     displayActivities.forEach((activity) => {
       const uid = (typeof activity.userId === "string" ? activity.userId : activity.userId?._id) as string;
@@ -242,6 +354,7 @@ export default function MapView() {
       
       if (!uid) return;
       const color = getUserColor(uid, userColorMapRef.current);
+      const isCurrentUser = !!currentUserId && uid === currentUserId;
       const isLoop = activity.route?.type === "Polygon";
       
       // Skip if completely conquered in Conquest Mode
@@ -260,7 +373,7 @@ export default function MapView() {
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
             <span style="font-size:1.5rem;">${actIcon(activity.activityType)}</span>
             <div>
-              <div style="font-size:0.95rem;font-weight:700;color:#111;">${activity.userId.username} ${isConquestMode ? '(Conqueror)' : ''}</div>
+              <div style="font-size:0.95rem;font-weight:700;color:#111;">${username}${isCurrentUser ? ' (You)' : ''} ${isConquestMode ? '(Conqueror)' : ''}</div>
               <div style="font-size:0.72rem;color:#666;">
                 ${fmtDate(activity.startTime)} • ${activity.activityType}
                 <span style="margin-left:6px;padding:2px 6px;background:#eee;color:#444;border-radius:4px;font-size:0.62rem;font-weight:700;">
@@ -298,8 +411,26 @@ export default function MapView() {
           const latLngs = displayGeo.coordinates.map((poly: any) => 
             poly[0].map(([lng, lat]: any) => [lat, lng])
           );
+
+          try {
+            const centroid = turf.centroid(turf.multiPolygon(displayGeo.coordinates)).geometry.coordinates;
+            updateUserBadge(
+              uid,
+              username,
+              color,
+              [centroid[1], centroid[0]],
+              (activity.areaSquareMeters || 0) + (activity.distanceMeters || 0),
+              isCurrentUser,
+            );
+          } catch {}
+
           polygon = L.polygon(latLngs, {
-            color, weight: 2.5, opacity: 0.9, fillColor: color, fillOpacity: 0.35, smoothFactor: 1,
+            color,
+            weight: isCurrentUser ? 3.8 : 2.5,
+            opacity: isCurrentUser ? 1 : 0.9,
+            fillColor: color,
+            fillOpacity: isCurrentUser ? 0.5 : 0.35,
+            smoothFactor: 1,
           }).addTo(map);
           latLngs.flat().forEach((ll: any) => allLatLngs.push(ll as [number, number]));
         } else {
@@ -308,14 +439,31 @@ export default function MapView() {
           const latLngs = ring.map(([lng, lat]) => [lat, lng] as [number, number]);
           latLngs.forEach((ll) => allLatLngs.push(ll));
 
+          try {
+            const centroid = turf.centroid(turf.polygon(displayGeo.coordinates)).geometry.coordinates;
+            updateUserBadge(
+              uid,
+              username,
+              color,
+              [centroid[1], centroid[0]],
+              (activity.areaSquareMeters || 0) + (activity.distanceMeters || 0),
+              isCurrentUser,
+            );
+          } catch {}
+
           polygon = L.polygon(latLngs, {
-            color, weight: 2.5, opacity: 0.9, fillColor: color, fillOpacity: 0.35, smoothFactor: 1,
+            color,
+            weight: isCurrentUser ? 3.8 : 2.5,
+            opacity: isCurrentUser ? 1 : 0.9,
+            fillColor: color,
+            fillOpacity: isCurrentUser ? 0.5 : 0.35,
+            smoothFactor: 1,
           }).addTo(map);
         }
 
         polygon.bindPopup(popupHTML, { maxWidth: 300, className: "fitness-popup" });
-        polygon.on("mouseover", () => (polygon as L.Polygon).setStyle({ fillOpacity: 0.5, weight: 3.5 }));
-        polygon.on("mouseout", () => (polygon as L.Polygon).setStyle({ fillOpacity: 0.35, weight: 2.5 }));
+        polygon.on("mouseover", () => (polygon as L.Polygon).setStyle({ fillOpacity: isCurrentUser ? 0.62 : 0.5, weight: isCurrentUser ? 4.6 : 3.5 }));
+        polygon.on("mouseout", () => (polygon as L.Polygon).setStyle({ fillOpacity: isCurrentUser ? 0.5 : 0.35, weight: isCurrentUser ? 3.8 : 2.5 }));
         polygon.on("click", () => setSelectedActivity(activity));
         layersRef.current.push(polygon);
       } else {
@@ -324,12 +472,16 @@ export default function MapView() {
         if (!coords || coords.length < 2) return;
         const latLngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
         latLngs.forEach((ll) => allLatLngs.push(ll));
+        const mid = latLngs[Math.floor(latLngs.length / 2)];
+        if (mid) {
+          updateUserBadge(uid, username, color, mid, activity.distanceMeters || 0, isCurrentUser);
+        }
 
         // Outer glow line
         const glow = L.polyline(latLngs, {
           color,
-          weight: 10,
-          opacity: 0.15,
+          weight: isCurrentUser ? 14 : 10,
+          opacity: isCurrentUser ? 0.3 : 0.15,
           lineCap: "round",
           lineJoin: "round",
           smoothFactor: 1.5,
@@ -338,8 +490,8 @@ export default function MapView() {
         // Main line
         const line = L.polyline(latLngs, {
           color,
-          weight: 4,
-          opacity: 0.85,
+          weight: isCurrentUser ? 5.5 : 4,
+          opacity: isCurrentUser ? 1 : 0.85,
           lineCap: "round",
           lineJoin: "round",
           smoothFactor: 1.5,
@@ -364,12 +516,127 @@ export default function MapView() {
       }
     });
 
+    const orderedBadges = Array.from(userBadges.values()).sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      return b.score - a.score;
+    });
+
+    const showName = zoom >= 12;
+    const showFullName = zoom >= 14;
+    const badgeAvatarSize = zoom >= 14 ? 26 : zoom >= 12 ? 24 : 20;
+    const badgeFontSize = zoom >= 14 ? 11 : zoom >= 12 ? 10 : 0;
+    const badgeNameMaxChars = showFullName ? 16 : 10;
+    const placedRects: Array<{ x: number; y: number; w: number; h: number }> = [];
+
+    const intersects = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => {
+      const pad = 6;
+      return !(
+        a.x + a.w + pad < b.x ||
+        b.x + b.w + pad < a.x ||
+        a.y + a.h + pad < b.y ||
+        b.y + b.h + pad < a.y
+      );
+    };
+
+    const resolveBadgeLatLng = (
+      baseLatLng: [number, number],
+      boxW: number,
+      boxH: number,
+    ): [number, number] => {
+      const basePoint = map.latLngToLayerPoint(baseLatLng);
+      const candidates: Array<[number, number]> = [[0, 0]];
+
+      for (let ring = 1; ring <= 4; ring++) {
+        const r = ring * 22;
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 * i) / 8;
+          candidates.push([Math.round(Math.cos(angle) * r), Math.round(Math.sin(angle) * r)]);
+        }
+      }
+
+      for (const [dx, dy] of candidates) {
+        const x = basePoint.x + dx - boxW / 2;
+        const y = basePoint.y + dy - boxH;
+        const rect = { x, y, w: boxW, h: boxH };
+        const collides = placedRects.some((r) => intersects(rect, r));
+        if (!collides) {
+          placedRects.push(rect);
+          const shifted = L.point(basePoint.x + dx, basePoint.y + dy);
+          const shiftedLatLng = map.layerPointToLatLng(shifted);
+          return [shiftedLatLng.lat, shiftedLatLng.lng];
+        }
+      }
+
+      const fallbackRect = { x: basePoint.x - boxW / 2, y: basePoint.y - boxH, w: boxW, h: boxH };
+      placedRects.push(fallbackRect);
+      return baseLatLng;
+    };
+
+    orderedBadges.forEach((badge) => {
+      const initials = getUserInitials(badge.username);
+      const rawName = badge.username || "Unknown";
+      const trimmedName = rawName.length > badgeNameMaxChars ? `${rawName.slice(0, badgeNameMaxChars - 1)}…` : rawName;
+      const displayName = escapeHtml(trimmedName);
+      const estimatedWidth = showName ? (badge.isCurrent ? 150 : 125) : badgeAvatarSize + 12;
+      const estimatedHeight = showName ? 38 : badgeAvatarSize + 8;
+      const markerLatLng = resolveBadgeLatLng(badge.latLng, estimatedWidth, estimatedHeight);
+
+      const marker = L.marker(markerLatLng, {
+        icon: L.divIcon({
+          className: "",
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+          html: `
+            <div style="
+              transform: translate(-50%, -100%);
+              pointer-events: none;
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+              padding: ${showName ? "4px 9px 4px 4px" : "3px"};
+              border-radius: 999px;
+              border: 1px solid ${badge.isCurrent ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.35)"};
+              background: ${badge.isCurrent ? "rgba(12,18,28,0.95)" : "rgba(12,18,28,0.78)"};
+              box-shadow: ${badge.isCurrent ? `0 0 0 2px ${hexToRgba(badge.color, 0.45)}, 0 6px 18px rgba(0,0,0,0.32)` : "0 4px 12px rgba(0,0,0,0.28)"};
+              backdrop-filter: blur(6px);
+            ">
+              <div style="
+                width: ${badgeAvatarSize}px;
+                height: ${badgeAvatarSize}px;
+                border-radius: 50%;
+                background: ${badge.color};
+                color: #fff;
+                display: grid;
+                place-items: center;
+                font-size: ${zoom >= 12 ? "11px" : "9px"};
+                font-weight: 800;
+                letter-spacing: 0.03em;
+                border: 2px solid rgba(255,255,255,0.75);
+              ">${escapeHtml(initials)}</div>
+              ${showName
+                ? `<div style="display:flex;align-items:center;gap:6px;max-width:150px;">
+                    <span style="font-size:${badgeFontSize}px;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${displayName}</span>
+                    ${badge.isCurrent ? '<span style="font-size:9px;font-weight:800;color:#0c1320;background:#7dd3fc;padding:1px 6px;border-radius:999px;letter-spacing:0.04em;">YOU</span>' : ""}
+                  </div>`
+                : `${badge.isCurrent ? '<span style="font-size:8px;font-weight:800;color:#0c1320;background:#7dd3fc;padding:1px 5px;border-radius:999px;letter-spacing:0.04em;">YOU</span>' : ""}`}
+            </div>
+          `,
+        }),
+        zIndexOffset: badge.isCurrent ? 1200 : 800,
+        keyboard: false,
+      }).addTo(map);
+      layersRef.current.push(marker);
+    });
+
     // Fit bounds
-    if (allLatLngs.length > 0) {
+    if (allLatLngs.length > 0 && !conquestToggled && !preserveViewport) {
       console.log("Drawing", layersRef.current.length, "layers for", filtered.length, "activities");
       map.fitBounds(L.latLngBounds(allLatLngs), { padding: [40, 40], maxZoom: 14 });
     }
-  }, [filtered, isConquestMode]);
+
+    lastConquestModeRef.current = isConquestMode;
+  }, [filtered, isConquestMode, currentUserId]);
 
   // ========================================================================
   // SEARCH
@@ -413,6 +680,23 @@ export default function MapView() {
       drawActivities(); 
     }
   }, [drawActivities, isConquestMode, activities, isLoading]);
+
+  // Reflow badges while zooming without resetting viewport
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const onZoomEnd = () => {
+      if (mapReadyRef.current && activities.length > 0) {
+        drawActivities(true);
+      }
+    };
+
+    map.on("zoomend", onZoomEnd);
+    return () => {
+      map.off("zoomend", onZoomEnd);
+    };
+  }, [drawActivities, activities.length]);
 
   // Search effect
   useEffect(() => {
@@ -496,10 +780,10 @@ export default function MapView() {
         </div>
 
         <div className="map-filter-wrap">
-          <div className="map-filter-group" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-            {(["all", "walk", "cycle"] as const).map((t) => (
+          <div className="map-filter-group" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            {(["walk", "cycle"] as const).map((t) => (
               <button key={t} type="button" className={`map-filter-tab ${filter === t ? "map-filter-tab--active" : ""}`} onClick={() => setFilter(t)}>
-                {t === "all" ? "All" : t === "walk" ? "🚶 By Walk" : "🚴 By Cycle"}
+                {t === "walk" ? "🚶 By Walk" : "🚴 By Cycle"}
               </button>
             ))}
           </div>

@@ -156,6 +156,7 @@ function isClosedLoop(points: Array<{ lat: number; lng: number }>, mapBox: Share
 export default function LeaderboardPanel() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [mode, setMode] = useState<ActivityMode>("walk");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("daily");
@@ -190,24 +191,30 @@ export default function LeaderboardPanel() {
     fetchAll();
   }, []);
 
-  // Load logged-in user from JWT
   useEffect(() => {
-    async function fetchLoggedInUser() {
-      const token = window.localStorage.getItem("fit_token");
+    async function fetchCurrentUser() {
+      const token = localStorage.getItem("fit_token");
       if (!token) return;
 
       try {
         const res = await fetch(`${API_URL}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+          },
         });
+
         if (!res.ok) return;
-        const data = await res.json();
-        setLoggedInUserId(data?._id || data?.id || null);
-      } catch {
-        setLoggedInUserId(null);
+
+        const data: { _id?: string; id?: string } = await res.json();
+        const resolvedId = typeof data._id === "string" ? data._id : typeof data.id === "string" ? data.id : null;
+        setCurrentUserId(resolvedId);
+      } catch (err) {
+        console.error("Failed to resolve current user:", err);
       }
     }
-    fetchLoggedInUser();
+
+    fetchCurrentUser();
   }, []);
 
   // Compute leaderboard
@@ -470,17 +477,34 @@ export default function LeaderboardPanel() {
             {sortedUsers.map((user, idx) => {
               const rank = idx + 1;
               const progress = (user.score / maxScore) * 100;
+              const isCurrentUser = !!currentUserId && user.id === currentUserId;
               return (
                 <div
                   key={user.id}
                   className={`lb-row ${rank === 1 ? "lb-row--gold" : rank === 2 ? "lb-row--silver" : rank === 3 ? "lb-row--bronze" : ""}`}
+                  style={isCurrentUser ? { border: "1px solid rgba(74, 222, 128, 0.75)", boxShadow: "0 0 0 2px rgba(74, 222, 128, 0.22) inset", background: "rgba(74, 222, 128, 0.08)" } : undefined}
                 >
                   <div className={`lb-rank lb-rank--${rank}`}>
                     {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
                   </div>
 
                   <div className="lb-info">
-                    <div className="lb-username">{user.username}</div>
+                    <div className="lb-username" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span>{user.username}</span>
+                      {isCurrentUser && (
+                        <span style={{
+                          fontSize: "0.62rem",
+                          fontWeight: 800,
+                          letterSpacing: "0.05em",
+                          color: "#0a1f0f",
+                          background: "#4ade80",
+                          borderRadius: "999px",
+                          padding: "2px 8px",
+                        }}>
+                          YOU
+                        </span>
+                      )}
+                    </div>
                     
                     {/* Small sub-stats display */}
                     <div style={{ display: "flex", gap: "10px", marginTop: "4px", fontSize: "0.65rem", color: "rgba(255,255,255,0.4)" }}>
