@@ -574,14 +574,29 @@
     color: #e2e8f0;
 }
 
-.feature1-leaderboard-page .feature1-sidebar {
-    width: min(900px, 94vw);
-    max-height: calc(100vh - 160px);
-    min-width: unset;
-    flex: none;
-    border-left: none;
+.feature1-leaderboard-page .feature1-leaderboard-content-wrapper {
+    width: min(1100px, 95vw);
+    min-height: 80vh;
+    background: rgba(13, 13, 22, 0.7);
+    backdrop-filter: blur(40px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 24px;
+    border-radius: 32px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 30px 100px rgba(0, 0, 0, 0.6);
+}
+
+.feature1-leaderboard-page {
+    background: radial-gradient(circle at top, #1a1a2e 0%, #0d0d14 100%);
+}
+
+.lb-tabs {
+    justify-content: center;
+}
+
+.lb-row {
+    margin: 0 10px;
 }
 
 /* ─── Light Mode ────────────────────────────────────────────── */

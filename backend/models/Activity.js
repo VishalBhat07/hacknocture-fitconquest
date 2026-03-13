@@ -10,7 +10,7 @@ const ActivitySchema = new mongoose.Schema({
 
   activityType: {
     type: String,
-    enum: ["run", "walk", "cycle"],
+    enum: ["walk", "cycle"],
     required: true
   },
 
@@ -47,14 +47,23 @@ const ActivitySchema = new mongoose.Schema({
     type: Date
   },
 
+  // Area covered (only meaningful for Polygon / loop routes)
+  areaSquareMeters: {
+    type: Number,
+    default: 0
+  },
+
+  // Supports BOTH geometries:
+  //   LineString → point-to-point path   → coordinates: [[lng,lat], ...]
+  //   Polygon    → loop / region covered → coordinates: [[[lng,lat], ...]]
   route: {
     type: {
       type: String,
-      enum: ["LineString"],
+      enum: ["LineString", "Polygon"],
       required: true
     },
     coordinates: {
-      type: [[Number]], // [lng, lat]
+      type: mongoose.Schema.Types.Mixed,
       required: true
     }
   }

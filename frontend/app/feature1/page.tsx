@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-"use client";
-
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import "./feature1.css";
 
@@ -71,11 +70,12 @@ export default function Feature1() {
     }
   };
 
+  // ── Not logged in: show login form ──────────────────────────────────────────
   if (!user) {
     return (
       <div className="feature-page feature-1-page" id="feature-1-page" style={{ minHeight: '80vh', padding: '10rem 2rem' }}>
         <div className="content-card" style={{ margin: '0 auto', textAlign: 'center' }}>
-          <h2>Login for Workout Tracking</h2>
+          <h2>Login for Activity Map</h2>
           <form onSubmit={login} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
             <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={{ padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }} />
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={{ padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }} />
@@ -87,50 +87,56 @@ export default function Feature1() {
     );
   }
 
+  // ── Logged in: full-screen map view ─────────────────────────────────────────
+  // Use feature1-container so the CSS height:100vh + flex layout works properly
   return (
-    <div className="feature-page feature-1-page" id="feature-1-page" style={{ alignItems: 'flex-start', padding: '8rem 5% 4rem' }}>
-      <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }}>
-        <div>
-          <Link href="/" className="back-link">
-            ← Back to Home
-          </Link>
-          <div className="page-icon" style={{ marginTop: '1rem' }}>⚡</div>
-          <h1>Feature 1</h1>
-          <p className="subtitle">
-            Welcome, {user.username}! Supercharge your training with intelligent workout tracking, adaptive
-            plans, and real-time analytics that evolve with you.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button onClick={() => { localStorage.removeItem("fit_token"); setUser(null); }} style={{ padding: '0.75rem 1.5rem', background: 'rgba(255,100,100,0.1)', borderRadius: '12px', color: '#ff8888', border: '1px solid rgba(255,100,100,0.2)', cursor: 'pointer' }}>Logout</button>
-        </div>
+    <div className="feature1-container" id="feature-1-page">
+      {/* Top bar with user info + logout — sits above the map controls */}
+      <div style={{
+        position: 'absolute',
+        top: 60,
+        right: 20,
+        zIndex: 1300,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem'
+      }}>
+        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
+          👤 {user.username}
+        </span>
+        <button
+          onClick={() => { localStorage.removeItem("fit_token"); setUser(null); }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'rgba(255,100,100,0.12)',
+            borderRadius: '10px',
+            color: '#ff8888',
+            border: '1px solid rgba(255,100,100,0.25)',
+            cursor: 'pointer',
+            fontSize: '0.78rem',
+            fontWeight: 700
+          }}
+        >
+          Logout
+        </button>
+        <Link
+          href="/"
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '10px',
+            color: 'rgba(255,255,255,0.6)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            textDecoration: 'none',
+            fontSize: '0.78rem',
+            fontWeight: 700
+          }}
+        >
+          ← Home
+        </Link>
       </div>
 
-      <div className="content-card" style={{ width: '100%', maxWidth: '800px' }}>
-        <h3>What&apos;s Included</h3>
-        <ul>
-          <li>
-            <span className="check">✓</span>
-            Real-time workout logging &amp; analytics
-          </li>
-          <li>
-            <span className="check">✓</span>
-            AI-powered adaptive training plans
-          </li>
-          <li>
-            <span className="check">✓</span>
-            Progress graphs and milestone tracking
-          </li>
-          <li>
-            <span className="check">✓</span>
-            Smart recovery recommendations
-          </li>
-          <li>
-            <span className="check">✓</span>
-            Integration with wearable devices
-          </li>
-        </ul>
-      </div>
+      <MapView />
     </div>
   );
 }
