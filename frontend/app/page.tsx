@@ -18,6 +18,14 @@ interface User {
   _id: string;
   id?: string;
   username: string;
+  stats?: {
+    totalPushups?: number;
+    totalSquats?: number;
+    exerciseTotals?: {
+      pushup?: number;
+      squat?: number;
+    };
+  };
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
@@ -27,11 +35,9 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`;
 }
 
-function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0m";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+function formatCount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  return Math.floor(value).toLocaleString("en-IN");
 }
 
 async function readJsonSafe(res: Response): Promise<{ data: unknown; text: string }> {
@@ -90,7 +96,12 @@ export default function Home() {
       const me = await meRes.json();
       const resolvedId = typeof me?._id === "string" ? me._id : typeof me?.id === "string" ? me.id : "";
       if (resolvedId) {
-        setUser({ _id: resolvedId, id: resolvedId, username: me?.username || "Athlete" });
+        setUser({
+          _id: resolvedId,
+          id: resolvedId,
+          username: me?.username || "Athlete",
+          stats: me?.stats || undefined,
+        });
       }
 
       const actRes = await fetch(`${API_URL}/api/activities?days=3650&limit=5000`, {
@@ -191,44 +202,25 @@ export default function Home() {
   }, [activities, user]);
 
   const stats = useMemo(() => {
-    const now = new Date();
-    const nowTs = now.getTime();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const msPerDay = 86400000;
-    const startOfWeek = startOfToday - 6 * msPerDay;
-    const startOfMonth = startOfToday - 29 * msPerDay;
-
-    const aggregate = {
-      today: 0,
-      week: 0,
-      month: 0,
-      overall: 0,
-      todayDur: 0,
-      monthCount: 0,
-    };
+    let walkMeters = 0;
+    let cycleMeters = 0;
 
     userActivities.forEach((a) => {
-      const ts = new Date(a.startTime).getTime();
-      if (!Number.isFinite(ts) || ts > nowTs) return;
-
       const dist = Number(a.distanceMeters) || 0;
-      const dur = Number(a.durationSeconds) || 0;
-
-      aggregate.overall += dist;
-
-      if (ts >= startOfToday) {
-        aggregate.today += dist;
-        aggregate.todayDur += dur;
-      }
-      if (ts >= startOfWeek) aggregate.week += dist;
-      if (ts >= startOfMonth) {
-        aggregate.month += dist;
-        aggregate.monthCount += 1;
-      }
+      if (a.activityType === "cycle") cycleMeters += dist;
+      else walkMeters += dist;
     });
 
-    return aggregate;
-  }, [userActivities]);
+    const totalPushups = Number(user?.stats?.totalPushups ?? user?.stats?.exerciseTotals?.pushup ?? 0) || 0;
+    const totalSquats = Number(user?.stats?.totalSquats ?? user?.stats?.exerciseTotals?.squat ?? 0) || 0;
+
+    return {
+      walkMeters,
+      cycleMeters,
+      totalPushups,
+      totalSquats,
+    };
+  }, [userActivities, user]);
 
   const handleStravaConnect = async () => {
     try {
@@ -431,24 +423,24 @@ export default function Home() {
 
         <div className="home-dash-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: "1rem" }}>
           <article className="metric-card metric-card--today" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid rgba(99,102,241,0.35)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Today</p>
-            <h3>{loading ? "..." : formatDistance(stats.today)}</h3>
-            <span>{loading ? "" : `${formatDuration(stats.todayDur)} active`}</span>
+            <p>Walk Overall</p>
+            <h3>{loading ? "..." : formatDistance(stats.walkMeters)}</h3>
+            <span>Total walk distance</span>
           </article>
           <article className="metric-card" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid var(--card-border)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Last 7 Days</p>
-            <h3>{loading ? "..." : formatDistance(stats.week)}</h3>
-            <span>Weekly consistency</span>
+            <p>Cycle Overall</p>
+            <h3>{loading ? "..." : formatDistance(stats.cycleMeters)}</h3>
+            <span>Total cycle distance</span>
           </article>
           <article className="metric-card" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid var(--card-border)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Last 30 Days</p>
-            <h3>{loading ? "..." : formatDistance(stats.month)}</h3>
-            <span>{loading ? "" : `${stats.monthCount} sessions`}</span>
+            <p>Pushups Overall</p>
+            <h3>{loading ? "..." : formatCount(stats.totalPushups)}</h3>
+            <span>Total pushup reps</span>
           </article>
           <article className="metric-card metric-card--overall" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid rgba(6,182,212,0.35)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>All Time</p>
-            <h3>{loading ? "..." : formatDistance(stats.overall)}</h3>
-            <span>Total conquered distance</span>
+            <p>Squats Overall</p>
+            <h3>{loading ? "..." : formatCount(stats.totalSquats)}</h3>
+            <span>Total squat reps</span>
           </article>
         </div>
       </section>

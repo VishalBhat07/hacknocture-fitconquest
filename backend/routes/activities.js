@@ -78,6 +78,43 @@ function getStravaRoute(item) {
   };
 }
 
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (v) => (v * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function routeDistanceMeters(coords) {
+  if (!Array.isArray(coords) || coords.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const prev = coords[i - 1];
+    const curr = coords[i];
+    if (!Array.isArray(prev) || !Array.isArray(curr)) continue;
+    const [lng1, lat1] = prev;
+    const [lng2, lat2] = curr;
+    if (
+      !Number.isFinite(lat1) ||
+      !Number.isFinite(lng1) ||
+      !Number.isFinite(lat2) ||
+      !Number.isFinite(lng2)
+    ) {
+      continue;
+    }
+    total += haversineMeters(lat1, lng1, lat2, lng2);
+  }
+  return total;
+}
+
 /**
  * GET /api/activities
  * Query params:
@@ -112,6 +149,94 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("Activities fetch error:", err);
     res.status(500).json({ error: "Failed to fetch activities" });
+  }
+});
+
+/**
+ * POST /api/activities
+ * Body: {
+ *   activityType: "walk" | "cycle",
+ *   startTime: ISO string,
+ *   endTime: ISO string,
+ *   route: { type: "LineString", coordinates: [[lng,lat], ...] }
+ * }
+ * Requires Authorization: Bearer <token>
+ */
+router.post("/", async (req, res) => {
+  try {
+    const userId = getBearerUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const activityType = req.body?.activityType === "cycle" ? "cycle" : "walk";
+    const startTime = new Date(req.body?.startTime);
+    const endTime = new Date(req.body?.endTime);
+    const coordinates = req.body?.route?.coordinates;
+
+    if (
+      !Number.isFinite(startTime.getTime()) ||
+      !Number.isFinite(endTime.getTime())
+    ) {
+      return res.status(400).json({ error: "Invalid start/end time" });
+    }
+
+    const durationSeconds = Math.floor(
+      (endTime.getTime() - startTime.getTime()) / 1000,
+    );
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      return res.status(400).json({ error: "Duration must be greater than 0" });
+    }
+
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
+      return res
+        .status(400)
+        .json({ error: "Route must contain at least 2 points" });
+    }
+
+    const normalizedCoords = coordinates
+      .map((pt) => {
+        if (!Array.isArray(pt) || pt.length < 2) return null;
+        const lng = Number(pt[0]);
+        const lat = Number(pt[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return [lng, lat];
+      })
+      .filter(Boolean);
+
+    if (normalizedCoords.length < 2) {
+      return res.status(400).json({ error: "Route coordinates are invalid" });
+    }
+
+    const distanceMeters = routeDistanceMeters(normalizedCoords);
+    if (!Number.isFinite(distanceMeters) || distanceMeters <= 1) {
+      return res.status(400).json({ error: "Tracked distance is too short" });
+    }
+
+    const avgSpeed = (distanceMeters / durationSeconds) * 3.6;
+
+    const created = await Activity.create({
+      userId,
+      activityType,
+      source: "app",
+      distanceMeters: Number(distanceMeters.toFixed(2)),
+      durationSeconds,
+      avgSpeed: Number(avgSpeed.toFixed(2)),
+      startTime,
+      endTime,
+      areaSquareMeters: 0,
+      route: {
+        type: "LineString",
+        coordinates: normalizedCoords,
+      },
+    });
+
+    const hydrated = await Activity.findById(created._id)
+      .populate("userId", "username")
+      .lean();
+
+    return res.status(201).json(hydrated);
+  } catch (err) {
+    console.error("Activity create error:", err);
+    return res.status(500).json({ error: "Failed to save activity" });
   }
 });
 
