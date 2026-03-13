@@ -43,6 +43,32 @@ interface SearchSuggestion {
   longitude: number;
 }
 
+type ShieldType = "bronze" | "silver" | "gold";
+
+interface ShieldCatalogItem {
+  type: ShieldType;
+  name: string;
+  cost: number;
+  days: number;
+  color: string;
+  desc: string;
+}
+
+interface ShieldRegion {
+  id: string;
+  name: string;
+  owner: string;
+  ownerId: string;
+  shieldType: ShieldType;
+  activatedAt: Date;
+  expiresAt: Date;
+  shield: ShieldCatalogItem;
+  route: {
+    type: 'Polygon';
+    coordinates: [number, number][][];
+  };
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -67,6 +93,17 @@ const USER_COLORS = [
   "#f97316", "#6366f1", "#22d3ee", "#a855f7", "#eab308",
   "#0ea5e9", "#d946ef", "#2dd4bf", "#fb923c", "#818cf8",
 ];
+
+const SHIELDS: ShieldCatalogItem[] = [
+  { type: "bronze", name: "Bronze Shield", cost: 100, days: 1, color: "#cd7f32", desc: "Secure your captured territories for 24 hours." },
+  { type: "silver", name: "Silver Shield", cost: 250, days: 3, color: "#C0C0C0", desc: "Extended protection for your zones over a long weekend." },
+  { type: "gold", name: "Gold Shield", cost: 400, days: 5, color: "#FFD700", desc: "Premium impenetrable defense for almost an entire week." },
+];
+
+const SHIELD_BY_TYPE = SHIELDS.reduce((acc, item) => {
+  acc[item.type] = item;
+  return acc;
+}, {} as Record<ShieldType, ShieldCatalogItem>);
 
 // ============================================================================
 // HELPERS
@@ -98,6 +135,108 @@ function getConquestStrength(activity: Activity, maxArea: number, maxDistance: n
   return areaPart * 0.7 + distancePart * 0.3;
 }
 
+function getDayBounds(now: Date) {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  return { start, end };
+}
+
+function getSecondsUntilDayEnd(now: Date) {
+  const { end } = getDayBounds(now);
+  return Math.max(0, Math.floor((end.getTime() - now.getTime()) / 1000));
+}
+
+function fmtCountdown(totalSeconds: number) {
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  return [hrs, mins, secs].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function getShieldEmoji(shieldType: ShieldType) {
+  if (shieldType === "gold") return "🥇";
+  if (shieldType === "silver") return "🥈";
+  return "🥉";
+}
+
+function getShieldVibrantColor(shieldType: ShieldType) {
+  if (shieldType === "gold") return "#FFD700";
+  if (shieldType === "silver") return "#D9D9D9";
+  return "#CD7F32";
+}
+
+function getTopShieldRegionsFromActivities(activities: Activity[], now: Date): ShieldRegion[] {
+  const polygonActivities = activities.filter((activity) => activity.route?.type === "Polygon");
+  if (polygonActivities.length === 0) return [];
+
+  const perUser = new Map<string, {
+    ownerId: string;
+    owner: string;
+    totalArea: number;
+    totalDistance: number;
+    bestPolygon: Activity;
+  }>();
+
+  polygonActivities.forEach((activity) => {
+    const ownerId = (typeof activity.userId === "string" ? activity.userId : activity.userId?._id) as string;
+    if (!ownerId) return;
+
+    const owner = (typeof activity.userId === "object" ? activity.userId?.username : `User ${ownerId.slice(-4)}`) || "Unknown";
+    const existing = perUser.get(ownerId);
+    const isBetterPolygon = !existing || (activity.areaSquareMeters || 0) > (existing.bestPolygon.areaSquareMeters || 0);
+
+    if (!existing) {
+      perUser.set(ownerId, {
+        ownerId,
+        owner,
+        totalArea: activity.areaSquareMeters || 0,
+        totalDistance: activity.distanceMeters || 0,
+        bestPolygon: activity,
+      });
+      return;
+    }
+
+    existing.totalArea += activity.areaSquareMeters || 0;
+    existing.totalDistance += activity.distanceMeters || 0;
+    if (isBetterPolygon) {
+      existing.bestPolygon = activity;
+    }
+  });
+
+  const rankedUsers = Array.from(perUser.values())
+    .sort((a, b) => {
+      const scoreA = a.totalArea * 0.7 + a.totalDistance * 0.3;
+      const scoreB = b.totalArea * 0.7 + b.totalDistance * 0.3;
+      return scoreB - scoreA;
+    })
+    .slice(0, 3);
+
+  const rankShieldTypes: ShieldType[] = ["gold", "silver", "bronze"];
+
+  return rankedUsers.map((entry, rankIndex) => {
+    const shieldType = rankShieldTypes[rankIndex];
+    const shield = SHIELD_BY_TYPE[shieldType];
+    const bestPolygon = entry.bestPolygon;
+    const activatedAt = new Date(bestPolygon.endTime || bestPolygon.startTime || now);
+    const expiresAt = new Date(activatedAt.getTime() + shield.days * 24 * 60 * 60 * 1000);
+
+    return {
+      id: `shield-${shieldType}-${entry.ownerId}`,
+      name: `${entry.owner}'s Territory`,
+      owner: entry.owner,
+      ownerId: entry.ownerId,
+      shieldType,
+      activatedAt,
+      expiresAt,
+      shield,
+      route: {
+        type: 'Polygon' as 'Polygon',
+        coordinates: bestPolygon.route.coordinates as [number, number][][],
+      },
+    };
+  }).filter((region) => region.expiresAt > now);
+}
+
 function keepLargestPolygonChunk(geometry: any): any {
   if (!geometry || geometry.type !== "MultiPolygon") return geometry;
 
@@ -112,7 +251,7 @@ function keepLargestPolygonChunk(geometry: any): any {
 }
 
 // Logic to resolve overlaps with combined area+distance priority.
-function resolveConquest(activities: Activity[]): (Activity & { displayRoute?: any })[] {
+function resolveConquest(activities: Activity[], protectedZones: any): (Activity & { displayRoute?: any })[] {
   const polygonActivities = activities.filter((a) => a.route.type === "Polygon");
   const maxArea = Math.max(...polygonActivities.map((a) => a.areaSquareMeters || 0), 1);
   const maxDistance = Math.max(...polygonActivities.map((a) => a.distanceMeters || 0), 1);
@@ -148,13 +287,28 @@ function resolveConquest(activities: Activity[]): (Activity & { displayRoute?: a
 
     try {
       const currentPoly = turf.polygon(activity.route.coordinates);
+      let availableToClaim: any = currentPoly;
+
+      if (protectedZones) {
+        const protectedDiff = turf.difference(turf.featureCollection([currentPoly, protectedZones]));
+        if (protectedDiff && (protectedDiff.geometry.type === "Polygon" || protectedDiff.geometry.type === "MultiPolygon")) {
+          availableToClaim = turf.feature(protectedDiff.geometry);
+        } else {
+          availableToClaim = null;
+        }
+      }
+
+      if (!availableToClaim) {
+        results.push({ ...activity, displayRoute: null });
+        return;
+      }
       
       if (!combinedClaimed) {
-        results.push({ ...activity, displayRoute: activity.route });
-        combinedClaimed = currentPoly;
+        results.push({ ...activity, displayRoute: availableToClaim.geometry });
+        combinedClaimed = availableToClaim;
       } else {
         // Find the difference: Current - CombinedClaimed
-        const diff = turf.difference(turf.featureCollection([currentPoly, combinedClaimed]));
+        const diff = turf.difference(turf.featureCollection([availableToClaim, combinedClaimed]));
         
         if (diff && diff.geometry) {
           const displayRoute = keepLargestPolygonChunk(diff.geometry);
@@ -165,7 +319,7 @@ function resolveConquest(activities: Activity[]): (Activity & { displayRoute?: a
             results.push({ ...activity, displayRoute: null });
           }
 
-          combinedClaimed = turf.union(turf.featureCollection([combinedClaimed, currentPoly]));
+          combinedClaimed = turf.union(turf.featureCollection([combinedClaimed, availableToClaim]));
         } else {
           // Completely conquered!
           results.push({ ...activity, displayRoute: null });
@@ -235,6 +389,18 @@ export default function MapView() {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [isConquestMode, setIsConquestMode] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [dayKey, setDayKey] = useState(() => new Date().toDateString());
+  const [secondsToReset, setSecondsToReset] = useState(() => getSecondsUntilDayEnd(new Date()));
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      setSecondsToReset(getSecondsUntilDayEnd(now));
+      const currentKey = now.toDateString();
+      setDayKey((prev) => (prev === currentKey ? prev : currentKey));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // ========================================================================
   // FETCH
@@ -289,6 +455,30 @@ export default function MapView() {
     return activities.filter((a) => a.activityType === filter);
   }, [activities, filter]);
 
+  const activeShieldRegions = useMemo(() => {
+    if (!isConquestMode) return [] as ShieldRegion[];
+    const now = new Date();
+    return getTopShieldRegionsFromActivities(filtered, now);
+  }, [filtered, isConquestMode]);
+
+  const shieldProtectedUnion = useMemo(() => {
+    if (!isConquestMode) return null;
+    if (activeShieldRegions.length === 0) return null;
+    let merged: any = null;
+    for (const region of activeShieldRegions) {
+      const current = turf.polygon(region.route.coordinates);
+      if (!merged) {
+        merged = current;
+      } else {
+        const unioned = turf.union(turf.featureCollection([merged, current]));
+        if (unioned && (unioned.geometry.type === "Polygon" || unioned.geometry.type === "MultiPolygon")) {
+          merged = unioned;
+        }
+      }
+    }
+    return merged;
+  }, [activeShieldRegions, isConquestMode]);
+
   // Legend: sorted by total area (loops count), lines show count
   const userLegend = useMemo(() => {
     const m = new Map<string, { username: string; color: string; loops: number; lines: number; totalArea: number }>();
@@ -332,7 +522,7 @@ export default function MapView() {
     }>();
 
     // Apply Conquest logic if enabled
-    const displayActivities = isConquestMode ? resolveConquest(filtered) : filtered;
+    const displayActivities = isConquestMode ? resolveConquest(filtered, shieldProtectedUnion) : filtered;
 
     const updateUserBadge = (
       uid: string,
@@ -516,6 +706,81 @@ export default function MapView() {
       }
     });
 
+    if (isConquestMode) {
+      activeShieldRegions.forEach((region) => {
+        const latLngs = region.route.coordinates[0].map(([lng, lat]) => [lat, lng] as [number, number]);
+        latLngs.forEach((ll) => allLatLngs.push(ll));
+
+        const shieldEmoji = getShieldEmoji(region.shieldType);
+        const shieldColor = getShieldVibrantColor(region.shieldType);
+
+        const shieldPolygon = L.polygon(latLngs, {
+          color: shieldColor,
+          weight: 5,
+          opacity: 1,
+          fillColor: shieldColor,
+          fillOpacity: 0.3,
+          dashArray: "12 8",
+        }).addTo(map);
+
+        const shieldGlow = L.polygon(latLngs, {
+          color: shieldColor,
+          weight: 10,
+          opacity: 0.35,
+          fillOpacity: 0,
+        }).addTo(map);
+
+        const ttlSeconds = Math.max(0, Math.floor((region.expiresAt.getTime() - Date.now()) / 1000));
+        const ttlLabel = ttlSeconds > 0 ? fmtCountdown(ttlSeconds) : "00:00:00";
+
+        shieldPolygon.bindPopup(
+          `
+          <div style="padding:8px 6px;min-width:220px;font-family:system-ui,sans-serif;">
+            <div style="font-size:0.95rem;font-weight:800;color:${shieldColor};margin-bottom:4px;">${shieldEmoji} ${region.shield.name}</div>
+            <div style="font-size:0.8rem;color:#333;font-weight:700;">${region.name}</div>
+            <div style="font-size:0.72rem;color:#666;margin-top:2px;">Owner: ${region.owner}</div>
+            <div style="font-size:0.72rem;color:#666;">Duration: ${region.shield.days} day${region.shield.days > 1 ? "s" : ""}</div>
+            <div style="margin-top:8px;padding:5px 8px;border-radius:7px;background:#f3f4f6;font-size:0.7rem;font-weight:700;color:#374151;">⏳ Expires in ${ttlLabel}</div>
+          </div>
+        `,
+          { maxWidth: 280, className: "fitness-popup" },
+        );
+
+        shieldPolygon.on("mouseover", () => {
+          shieldPolygon.setStyle({ fillOpacity: 0.42, weight: 6 });
+          shieldGlow.setStyle({ opacity: 0.5, weight: 12 });
+        });
+
+        shieldPolygon.on("mouseout", () => {
+          shieldPolygon.setStyle({ fillOpacity: 0.3, weight: 5 });
+          shieldGlow.setStyle({ opacity: 0.35, weight: 10 });
+        });
+
+        layersRef.current.push(shieldGlow);
+        layersRef.current.push(shieldPolygon);
+
+        // Floating badge at centroid
+        try {
+          const centroid = turf.centroid(turf.polygon(region.route.coordinates)).geometry.coordinates;
+          const badgeMarker = L.marker([centroid[1], centroid[0]], {
+            icon: L.divIcon({
+              className: "shield-tier-badge",
+              iconSize: [38, 38],
+              iconAnchor: [19, 19],
+              html: `<div style="
+                width:38px;height:38px;display:flex;align-items:center;justify-content:center;
+                border-radius:50%;background:${shieldColor};box-shadow:0 0 12px ${shieldColor}66;
+                font-size:2rem;font-weight:900;letter-spacing:0.02em;">
+                ${shieldEmoji}
+              </div>`
+            }),
+            keyboard: false,
+          }).addTo(map);
+          layersRef.current.push(badgeMarker);
+        } catch {}
+      });
+    }
+
     const orderedBadges = Array.from(userBadges.values()).sort((a, b) => {
       if (a.isCurrent && !b.isCurrent) return -1;
       if (!a.isCurrent && b.isCurrent) return 1;
@@ -636,7 +901,7 @@ export default function MapView() {
     }
 
     lastConquestModeRef.current = isConquestMode;
-  }, [filtered, isConquestMode, currentUserId]);
+  }, [filtered, isConquestMode, currentUserId, activeShieldRegions, shieldProtectedUnion]);
 
   // ========================================================================
   // SEARCH
@@ -762,6 +1027,12 @@ export default function MapView() {
           <Link className="map-leaderboard-link" href="/feature1/leaderboard">
             🏆 Leaderboard
           </Link>
+
+          {isConquestMode && (
+            <div className="map-leaderboard-link" style={{ display: "inline-flex", alignItems: "center", gap: 6 }} title="Time left for today's map window">
+              ⏳ {fmtCountdown(secondsToReset)}
+            </div>
+          )}
         </div>
 
         <div className="map-search-wrap">
