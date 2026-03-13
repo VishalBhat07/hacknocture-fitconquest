@@ -1,7 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+"use client";
+
+import dynamic from "next/dynamic";
+import "./feature1.css";
+
+// Leaflet requires `window` — dynamic import with SSR disabled
+const MapView = dynamic(() => import("./components/MapView"), {
+  ssr: false,
+  loading: () => (
+    <div className="map-loading">
+      <div className="map-loading-spinner" />
+      <span>Loading map…</span>
+    </div>
+  ),
+});
 
 export default function Feature1() {
   const [user, setUser] = useState<any>(null);
@@ -18,7 +32,7 @@ export default function Feature1() {
   const fetchUser = async (token: string) => {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/auth/me`, {
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
           'ngrok-skip-browser-warning': 'true'
         },
@@ -39,7 +53,7 @@ export default function Feature1() {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/auth/login`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "ngrok-skip-browser-warning": "true"
         },
@@ -60,14 +74,14 @@ export default function Feature1() {
   if (!user) {
     return (
       <div className="feature-page feature-1-page" id="feature-1-page" style={{ minHeight: '80vh', padding: '10rem 2rem' }}>
-        <div className="content-card" style={{margin: '0 auto', textAlign: 'center'}}>
-           <h2>Login for Workout Tracking</h2>
-           <form onSubmit={login} style={{display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem'}}>
-             <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={{padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white'}} />
-             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={{padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white'}} />
-             <button type="submit" style={{padding: '0.8rem', borderRadius: '8px', background: 'var(--accent-1)', color: 'white', fontWeight: 'bold', cursor: 'pointer'}}>Login</button>
-           </form>
-           <p style={{marginTop: '1rem', color: '#888', fontSize: '0.9rem'}}>Demo users: vishal, arjun, priya, rahul<br/>Password: password123</p>
+        <div className="content-card" style={{ margin: '0 auto', textAlign: 'center' }}>
+          <h2>Login for Workout Tracking</h2>
+          <form onSubmit={login} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+            <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={{ padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={{ padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }} />
+            <button type="submit" style={{ padding: '0.8rem', borderRadius: '8px', background: 'var(--accent-1)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Login</button>
+          </form>
+          <p style={{ marginTop: '1rem', color: '#888', fontSize: '0.9rem' }}>Demo users: vishal, arjun, priya, rahul<br />Password: password123</p>
         </div>
       </div>
     );
