@@ -4,11 +4,16 @@ import html2canvas from "html2canvas";
 import { useState, useMemo, useEffect, useRef } from "react";
 import * as turf from "@turf/turf";
 // Compute convex hull from route points
-function getConvexHull(points: Array<{ lat: number; lng: number }>): Array<{ lat: number; lng: number }> {
+function getConvexHull(
+  points: Array<{ lat: number; lng: number }>,
+): Array<{ lat: number; lng: number }> {
   if (!points || points.length < 3) return [];
-  const turfPoints = turf.featureCollection(points.map(p => turf.point([p.lng, p.lat])));
+  const turfPoints = turf.featureCollection(
+    points.map((p) => turf.point([p.lng, p.lat])),
+  );
   const hull = turf.convex(turfPoints);
-  if (!hull || !hull.geometry || !Array.isArray(hull.geometry.coordinates[0])) return [];
+  if (!hull || !hull.geometry || !Array.isArray(hull.geometry.coordinates[0]))
+    return [];
   return hull.geometry.coordinates[0].map(([lng, lat]) => ({ lat, lng }));
 }
 import "../feature1.css";
@@ -83,7 +88,9 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     const text = await response.text();
-    throw new Error(`Expected JSON but received ${contentType || "unknown"}: ${text.slice(0, 140)}`);
+    throw new Error(
+      `Expected JSON but received ${contentType || "unknown"}: ${text.slice(0, 140)}`,
+    );
   }
   return response.json();
 }
@@ -138,19 +145,29 @@ function buildRoutePolyline(
   return points
     .map((point) => {
       const x = padding + ((point.lng - minLng) / lngRange) * drawableWidth;
-      const y = padding + (1 - (point.lat - minLat) / latRange) * drawableHeight;
+      const y =
+        padding + (1 - (point.lat - minLat) / latRange) * drawableHeight;
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
 }
 
-function isClosedLoop(points: Array<{ lat: number; lng: number }>, mapBox: SharePayload["shareData"]["mapBox"]): boolean {
+function isClosedLoop(
+  points: Array<{ lat: number; lng: number }>,
+  mapBox: SharePayload["shareData"]["mapBox"],
+): boolean {
   if (points.length < 4) return false;
 
   const first = points[0];
   const last = points[points.length - 1];
-  const latRange = Math.max((mapBox?.maxLat ?? first.lat) - (mapBox?.minLat ?? first.lat), 0.00001);
-  const lngRange = Math.max((mapBox?.maxLng ?? first.lng) - (mapBox?.minLng ?? first.lng), 0.00001);
+  const latRange = Math.max(
+    (mapBox?.maxLat ?? first.lat) - (mapBox?.minLat ?? first.lat),
+    0.00001,
+  );
+  const lngRange = Math.max(
+    (mapBox?.maxLng ?? first.lng) - (mapBox?.minLng ?? first.lng),
+    0.00001,
+  );
 
   const latDiff = Math.abs(first.lat - last.lat) / latRange;
   const lngDiff = Math.abs(first.lng - last.lng) / lngRange;
@@ -183,12 +200,17 @@ export default function LeaderboardPanel() {
     async function fetchAll() {
       try {
         setIsLoading(true);
-        const res = await fetch(`${API_URL}/api/activities?days=30&limit=1000`, {
-          headers: { "ngrok-skip-browser-warning": "true" },
-        });
+        const res = await fetch(
+          `${API_URL}/api/activities?days=30&limit=1000`,
+          {
+            headers: { "ngrok-skip-browser-warning": "true" },
+          },
+        );
         if (!res.ok) {
           const errorText = await res.text();
-          throw new Error(`Activities request failed (${res.status}): ${errorText.slice(0, 140)}`);
+          throw new Error(
+            `Activities request failed (${res.status}): ${errorText.slice(0, 140)}`,
+          );
         }
         setActivities(await parseJsonResponse<Activity[]>(res));
       } catch (err) {
@@ -216,7 +238,12 @@ export default function LeaderboardPanel() {
         if (!res.ok) return;
 
         const data: { _id?: string; id?: string } = await res.json();
-        const resolvedId = typeof data._id === "string" ? data._id : typeof data.id === "string" ? data.id : null;
+        const resolvedId =
+          typeof data._id === "string"
+            ? data._id
+            : typeof data.id === "string"
+              ? data.id
+              : null;
         setCurrentUserId(resolvedId);
       } catch (err) {
         console.error("Failed to resolve current user:", err);
@@ -229,12 +256,20 @@ export default function LeaderboardPanel() {
   // Compute leaderboard
   const { sortedUsers, maxScore, globalStats } = useMemo(() => {
     if (!activities.length) {
-      return { sortedUsers: [], maxScore: 1, globalStats: { users: 0, val: 0 } };
+      return {
+        sortedUsers: [],
+        maxScore: 1,
+        globalStats: { users: 0, val: 0 },
+      };
     }
 
     const now = new Date();
     // Start of today
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
 
     // Filter activities by time and mode
     const filtered = activities.filter((a) => {
@@ -355,12 +390,18 @@ export default function LeaderboardPanel() {
       try {
         json = await parseJsonResponse<SharePayload | { error?: string }>(res);
       } catch (parseErr) {
-        const message = parseErr instanceof Error ? parseErr.message : "Invalid server response";
+        const message =
+          parseErr instanceof Error
+            ? parseErr.message
+            : "Invalid server response";
         throw new Error(message);
       }
 
       if (!res.ok) {
-        const message = ("error" in json && json.error) ? json.error : "Failed to generate Instagram content";
+        const message =
+          "error" in json && json.error
+            ? json.error
+            : "Failed to generate Instagram content";
         throw new Error(message);
       }
 
@@ -378,7 +419,9 @@ export default function LeaderboardPanel() {
         useCORS: true,
       });
 
-      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
+      const blob: Blob | null = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/png", 1),
+      );
       if (!blob) {
         throw new Error("Failed to export screenshot");
       }
@@ -398,10 +441,19 @@ export default function LeaderboardPanel() {
         // ignore clipboard failure
       }
 
-      window.open("https://www.instagram.com/", "_blank", "noopener,noreferrer");
-      setShareStatus("Screenshot downloaded and caption copied. Paste it in Instagram post/caption.");
+      window.open(
+        "https://www.instagram.com/",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      setShareStatus(
+        "Screenshot downloaded and caption copied. Paste it in Instagram post/caption.",
+      );
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create Instagram content";
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to create Instagram content";
       setShareError(message);
     } finally {
       setIsShareLoading(false);
@@ -412,16 +464,22 @@ export default function LeaderboardPanel() {
     <div className="feature1-leaderboard-content-wrapper">
       <div className="lb-header">
         <div className="lb-header-top">
-          <h2>🏆 Leaderboard</h2>
+          <h2>Leaderboard</h2>
           <div className="lb-live-indicator">LIVE</div>
         </div>
         <p>Real-time rankings based on actual user activities</p>
         <div className="lb-share-actions">
-          <button className="lb-share-btn" onClick={handlePostOnInstagram} disabled={isShareLoading}>
+          <button
+            className="lb-share-btn"
+            onClick={handlePostOnInstagram}
+            disabled={isShareLoading}
+          >
             {isShareLoading ? "Generating post..." : "Post on Instagram"}
           </button>
           {shareError && <span className="lb-share-error">{shareError}</span>}
-          {!shareError && shareStatus && <span className="lb-share-success">{shareStatus}</span>}
+          {!shareError && shareStatus && (
+            <span className="lb-share-success">{shareStatus}</span>
+          )}
         </div>
       </div>
 
@@ -434,26 +492,36 @@ export default function LeaderboardPanel() {
             onClick={() => setMode(activityMode)}
             style={{ flex: 1 }}
           >
-            {activityMode === "walk" ? "🚶 By Walk" : "🚴 By Cycle"}
+            {activityMode === "walk" ? "By Walk" : "By Cycle"}
           </button>
         ))}
       </div>
 
       {/* Metric / Category Tabs */}
-      <div className="lb-tabs" style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "6px" }}>
+      <div
+        className="lb-tabs"
+        style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "6px" }}
+      >
         {(["area", "distance", "time"] as const).map((metric) => (
           <button
             key={metric}
             className={`lb-tab ${sortMetric === metric ? "lb-tab--active" : ""}`}
             onClick={() => setSortMetric(metric)}
-            style={{ 
-              flex: 1, 
-              fontSize: "0.8rem", 
-              padding: "8px 10px", 
-              background: sortMetric === metric ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.03)" 
+            style={{
+              flex: 1,
+              fontSize: "0.8rem",
+              padding: "8px 10px",
+              background:
+                sortMetric === metric
+                  ? "rgba(255,255,255,0.15)"
+                  : "rgba(255,255,255,0.03)",
             }}
           >
-            {metric === "area" ? "🗺️ By Region (Area)" : metric === "distance" ? "📏 By Distance" : "⏱️ By Time"}
+            {metric === "area"
+              ? "By Region (Area)"
+              : metric === "distance"
+                ? "By Distance"
+                : "By Time"}
           </button>
         ))}
       </div>
@@ -475,11 +543,27 @@ export default function LeaderboardPanel() {
       {/* Leaderboard List */}
       <div className="lb-list-wrapper" style={{ minHeight: "400px" }}>
         {isLoading ? (
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%", color: "rgba(255,255,255,0.5)" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100%",
+              color: "rgba(255,255,255,0.5)",
+            }}
+          >
             Loading activities...
           </div>
         ) : sortedUsers.length === 0 ? (
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%", color: "rgba(255,255,255,0.5)" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100%",
+              color: "rgba(255,255,255,0.5)",
+            }}
+          >
             No activities found for this filter.
           </div>
         ) : (
@@ -487,45 +571,81 @@ export default function LeaderboardPanel() {
             {sortedUsers.map((user, idx) => {
               const rank = idx + 1;
               const progress = (user.score / maxScore) * 100;
-              const isCurrentUser = !!currentUserId && user.id === currentUserId;
+              const isCurrentUser =
+                !!currentUserId && user.id === currentUserId;
               return (
                 <div
                   key={user.id}
                   className={`lb-row ${rank === 1 ? "lb-row--gold" : rank === 2 ? "lb-row--silver" : rank === 3 ? "lb-row--bronze" : ""}`}
-                  style={isCurrentUser ? { border: "1px solid rgba(74, 222, 128, 0.75)", boxShadow: "0 0 0 2px rgba(74, 222, 128, 0.22) inset", background: "rgba(74, 222, 128, 0.08)" } : undefined}
+                  style={
+                    isCurrentUser
+                      ? {
+                          border: "1px solid rgba(74, 222, 128, 0.75)",
+                          boxShadow: "0 0 0 2px rgba(74, 222, 128, 0.22) inset",
+                          background: "rgba(74, 222, 128, 0.08)",
+                        }
+                      : undefined
+                  }
                 >
-                  <div className={`lb-rank lb-rank--${rank}`}>
-                    {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
-                  </div>
+                  <div className={`lb-rank lb-rank--${rank}`}>{rank}</div>
 
                   <div className="lb-info">
-                    <div className="lb-username" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div
+                      className="lb-username"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
                       <span>{user.username}</span>
                       {isCurrentUser && (
-                        <span style={{
-                          fontSize: "0.62rem",
-                          fontWeight: 800,
-                          letterSpacing: "0.05em",
-                          color: "#0a1f0f",
-                          background: "#4ade80",
-                          borderRadius: "999px",
-                          padding: "2px 8px",
-                        }}>
+                        <span
+                          style={{
+                            fontSize: "0.62rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.05em",
+                            color: "#0a1f0f",
+                            background: "#4ade80",
+                            borderRadius: "999px",
+                            padding: "2px 8px",
+                          }}
+                        >
                           YOU
                         </span>
                       )}
                     </div>
-                    
+
                     {/* Small sub-stats display */}
-                    <div style={{ display: "flex", gap: "10px", marginTop: "4px", fontSize: "0.65rem", color: "rgba(255,255,255,0.4)" }}>
-                      {sortMetric !== "area" && <span>🗺️ {fmtArea(user.totalAreaSqM)}</span>}
-                      {sortMetric !== "distance" && <span>📏 {fmtDist(user.totalDistanceM)}</span>}
-                      {sortMetric !== "time" && <span>⏱️ {fmtDur(user.totalDurationSec)}</span>}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        marginTop: "4px",
+                        fontSize: "0.65rem",
+                        color: "rgba(255,255,255,0.4)",
+                      }}
+                    >
+                      {sortMetric !== "area" && (
+                        <span>Area {fmtArea(user.totalAreaSqM)}</span>
+                      )}
+                      {sortMetric !== "distance" && (
+                        <span>Distance {fmtDist(user.totalDistanceM)}</span>
+                      )}
+                      {sortMetric !== "time" && (
+                        <span>Time {fmtDur(user.totalDurationSec)}</span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="lb-squats" style={{ textAlign: "right", zIndex: 2 }}>
-                    <div className="lb-squats-value" style={{ fontSize: "1.1rem" }}>
+                  <div
+                    className="lb-squats"
+                    style={{ textAlign: "right", zIndex: 2 }}
+                  >
+                    <div
+                      className="lb-squats-value"
+                      style={{ fontSize: "1.1rem" }}
+                    >
                       {formatScore(user.score, sortMetric)}
                     </div>
                     <div className="lb-squats-label" style={{ opacity: 0.8 }}>
@@ -533,7 +653,13 @@ export default function LeaderboardPanel() {
                     </div>
                   </div>
 
-                  <div className="lb-progress" style={{ width: `${progress}%`, transition: "width 0.5s ease" }} />
+                  <div
+                    className="lb-progress"
+                    style={{
+                      width: `${progress}%`,
+                      transition: "width 0.5s ease",
+                    }}
+                  />
                 </div>
               );
             })}
@@ -549,7 +675,9 @@ export default function LeaderboardPanel() {
             <div className="lb-stat-value">{globalStats.users}</div>
           </div>
           <div className="lb-stat" style={{ textAlign: "right" }}>
-            <div className="lb-stat-label">Total {getMetricLabel(sortMetric)}</div>
+            <div className="lb-stat-label">
+              Total {getMetricLabel(sortMetric)}
+            </div>
             <div className="lb-stat-value lb-stat-value--accent">
               {formatScore(globalStats.val, sortMetric)}
             </div>
@@ -559,25 +687,26 @@ export default function LeaderboardPanel() {
 
       {sharePayload && (
         <div className="ig-share-preview-block">
-          <h3 style={{marginBottom: 8}}>Instagram Share Preview</h3>
-          <div style={{
-            background: '#23263a',
-            borderRadius: 14,
-            padding: '1.3rem 1.2rem',
-            margin: '1rem 0 1.5rem',
-            color: '#fff',
-            fontSize: '1.13rem',
-            fontWeight: 600,
-            boxShadow: '0 2px 12px #0003',
-            border: '1.5px solid #3b3f5c',
-            maxWidth: 700,
-            wordBreak: 'break-word',
-            lineHeight: 1.6,
-            letterSpacing: 0.01,
-            textShadow: '0 1px 2px #0006',
-            cursor: 'pointer',
-            userSelect: 'all',
-          }}
+          <h3 style={{ marginBottom: 8 }}>Instagram Share Preview</h3>
+          <div
+            style={{
+              background: "#23263a",
+              borderRadius: 14,
+              padding: "1.3rem 1.2rem",
+              margin: "1rem 0 1.5rem",
+              color: "#fff",
+              fontSize: "1.13rem",
+              fontWeight: 600,
+              boxShadow: "0 2px 12px #0003",
+              border: "1.5px solid #3b3f5c",
+              maxWidth: 700,
+              wordBreak: "break-word",
+              lineHeight: 1.6,
+              letterSpacing: 0.01,
+              textShadow: "0 1px 2px #0006",
+              cursor: "pointer",
+              userSelect: "all",
+            }}
             title="Click to copy caption"
             onClick={() => {
               if (sharePayload.caption) {
@@ -585,8 +714,20 @@ export default function LeaderboardPanel() {
               }
             }}
           >
-            {sharePayload.caption || <span style={{color:'#f87171'}}>No caption generated.</span>}
-            <span style={{display:'block',fontSize:'0.95em',color:'#38bdf8',marginTop:8,fontWeight:400}}>Click to copy caption for Instagram</span>
+            {sharePayload.caption || (
+              <span style={{ color: "#f87171" }}>No caption generated.</span>
+            )}
+            <span
+              style={{
+                display: "block",
+                fontSize: "0.95em",
+                color: "#38bdf8",
+                marginTop: 8,
+                fontWeight: 400,
+              }}
+            >
+              Click to copy caption for Instagram
+            </span>
           </div>
         </div>
       )}
@@ -612,7 +753,13 @@ export default function LeaderboardPanel() {
                   className="ig-share-route-svg"
                   viewBox="0 0 1012 380"
                   preserveAspectRatio="none"
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
+                  }}
                 >
                   <defs>
                     <linearGradient id="ig-route" x1="0" y1="0" x2="1" y2="0">
@@ -622,29 +769,35 @@ export default function LeaderboardPanel() {
                     </linearGradient>
                   </defs>
 
-
                   {/* Convex hull polygon overlay (styled like provided image) */}
                   {(() => {
                     // For demo: support multiple hulls if needed (future-proofing)
                     // For now, only one hull from routePoints
                     const hulls = [];
-                    const mainHull = getConvexHull(sharePayload.shareData.routePoints);
+                    const mainHull = getConvexHull(
+                      sharePayload.shareData.routePoints,
+                    );
                     if (mainHull.length > 2) hulls.push(mainHull);
 
                     // Color palette for hulls
                     const hullColors = [
-                      'rgba(34,197,94,0.18)', // green
-                      'rgba(59,130,246,0.18)', // blue
-                      'rgba(244,63,94,0.18)', // red
-                      'rgba(251,191,36,0.18)', // yellow
-                      'rgba(139,92,246,0.18)', // purple
-                      'rgba(16,185,129,0.18)', // teal
-                      'rgba(236,72,153,0.18)', // pink
+                      "rgba(34,197,94,0.18)", // green
+                      "rgba(59,130,246,0.18)", // blue
+                      "rgba(244,63,94,0.18)", // red
+                      "rgba(251,191,36,0.18)", // yellow
+                      "rgba(139,92,246,0.18)", // purple
+                      "rgba(16,185,129,0.18)", // teal
+                      "rgba(236,72,153,0.18)", // pink
                     ];
 
                     if (hulls.length > 0) {
                       return hulls.map((hull, idx) => {
-                        const hullPoints = buildRoutePolyline(hull, sharePayload.shareData.mapBox, 1012, 380);
+                        const hullPoints = buildRoutePolyline(
+                          hull,
+                          sharePayload.shareData.mapBox,
+                          1012,
+                          380,
+                        );
                         return (
                           <polygon
                             key={idx}
@@ -652,19 +805,35 @@ export default function LeaderboardPanel() {
                             fill={hullColors[idx % hullColors.length]}
                             stroke="#22223b"
                             strokeWidth="4"
-                            style={{filter:'drop-shadow(0 2px 8px #22223b44)'}}
+                            style={{
+                              filter: "drop-shadow(0 2px 8px #22223b44)",
+                            }}
                           />
                         );
                       });
                     }
                     return (
-                      <text x="50%" y="50%" textAnchor="middle" fill="#f87171" fontSize="22" fontWeight="bold">No hull</text>
+                      <text
+                        x="50%"
+                        y="50%"
+                        textAnchor="middle"
+                        fill="#f87171"
+                        fontSize="22"
+                        fontWeight="bold"
+                      >
+                        No hull
+                      </text>
                     );
                   })()}
 
                   {/* Route polyline */}
                   <polyline
-                    points={buildRoutePolyline(sharePayload.shareData.routePoints, sharePayload.shareData.mapBox, 1012, 380)}
+                    points={buildRoutePolyline(
+                      sharePayload.shareData.routePoints,
+                      sharePayload.shareData.mapBox,
+                      1012,
+                      380,
+                    )}
                     fill="none"
                     stroke="url(#ig-route)"
                     strokeWidth="6"
@@ -674,22 +843,30 @@ export default function LeaderboardPanel() {
                   />
                 </svg>
               ) : (
-                <div className="ig-share-map-fallback">No route geometry available for map preview</div>
+                <div className="ig-share-map-fallback">
+                  No route geometry available for map preview
+                </div>
               )}
             </div>
 
             <div className="ig-share-metrics-grid">
               <div>
                 <span>Distance</span>
-                <strong>{fmtDist(sharePayload.shareData.distanceMeters)}</strong>
+                <strong>
+                  {fmtDist(sharePayload.shareData.distanceMeters)}
+                </strong>
               </div>
               <div>
                 <span>Time</span>
-                <strong>{fmtDur(sharePayload.shareData.durationSeconds)}</strong>
+                <strong>
+                  {fmtDur(sharePayload.shareData.durationSeconds)}
+                </strong>
               </div>
               <div>
                 <span>Area</span>
-                <strong>{fmtArea(sharePayload.shareData.areaSquareMeters)}</strong>
+                <strong>
+                  {fmtArea(sharePayload.shareData.areaSquareMeters)}
+                </strong>
               </div>
               <div>
                 <span>Rank</span>
@@ -701,8 +878,10 @@ export default function LeaderboardPanel() {
               <span>Map Box</span>
               {sharePayload.shareData.mapBox ? (
                 <p>
-                  lat [{sharePayload.shareData.mapBox.minLat.toFixed(4)}, {sharePayload.shareData.mapBox.maxLat.toFixed(4)}] •
-                  lng [{sharePayload.shareData.mapBox.minLng.toFixed(4)}, {sharePayload.shareData.mapBox.maxLng.toFixed(4)}]
+                  lat [{sharePayload.shareData.mapBox.minLat.toFixed(4)},{" "}
+                  {sharePayload.shareData.mapBox.maxLat.toFixed(4)}] • lng [
+                  {sharePayload.shareData.mapBox.minLng.toFixed(4)},{" "}
+                  {sharePayload.shareData.mapBox.maxLng.toFixed(4)}]
                 </p>
               ) : (
                 <p>No detailed route bounds available</p>
@@ -713,14 +892,18 @@ export default function LeaderboardPanel() {
               <h4>Leaderboard Snapshot</h4>
               {topThreeUsers.map((entry, index) => (
                 <div key={entry.id} className="ig-share-leaderboard-row">
-                  <span>#{index + 1} {entry.username}</span>
+                  <span>
+                    #{index + 1} {entry.username}
+                  </span>
                   <strong>{formatScore(entry.score, sortMetric)}</strong>
                 </div>
               ))}
               {loggedInUserStats && (
                 <div className="ig-share-leaderboard-row ig-share-leaderboard-row--you">
                   <span>You: {loggedInUserStats.username}</span>
-                  <strong>{formatScore(loggedInUserStats.score, sortMetric)}</strong>
+                  <strong>
+                    {formatScore(loggedInUserStats.score, sortMetric)}
+                  </strong>
                 </div>
               )}
             </div>

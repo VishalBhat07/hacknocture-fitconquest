@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { MouseEvent } from "react";
+import { Dumbbell, ChevronRight } from "lucide-react";
 
 type Exercise = {
   id: string;
@@ -92,119 +92,59 @@ export default function SoloWorkoutsPage() {
   }, []);
 
   return (
-    <div
-      className="feature-page"
-      style={{ padding: "8rem 5% 4rem", alignItems: "flex-start" }}
-    >
-      <Link
-        href="/feature2"
-        className="back-link"
-        style={{ marginBottom: "2rem" }}
-      >
-        ← Back to Challenges
-      </Link>
-
-      <div
-        style={{ width: "100%", textAlign: "center", marginBottom: "2.2rem" }}
-      >
-        <div className="page-icon" style={{ margin: "0 auto 1rem" }}>
-          🏋️
-        </div>
-        <h1>Individual Workouts</h1>
-        <p
-          className="subtitle"
-          style={{ margin: "0.75rem auto 0", maxWidth: "640px" }}
+    <div className="min-h-screen bg-black text-white px-4 sm:px-6 lg:px-8 pt-24 pb-14">
+      <div className="mx-auto w-full max-w-6xl">
+        <Link
+          href="/feature2"
+          className="inline-flex items-center gap-2 font-mono text-xs font-bold text-zinc-300 border border-white/15 px-4 py-2 uppercase tracking-widest hover:text-white hover:border-white/35 transition-colors no-underline mb-8"
         >
-          Choose any exercise and train solo. Squats and push-ups use AI camera
-          tracking, while the others use quick manual logging.
-        </p>
-      </div>
+          Back to Challenges
+        </Link>
 
-      <div
-        style={{
-          width: "100%",
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: "1.25rem",
-        }}
-      >
-        {exercises.map((exercise) => (
-          <Link
-            key={exercise.id}
-            href={`/feature2/solo/${exercise.id}`}
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              background: "var(--card-bg)",
-              border: "1px solid var(--card-border)",
-              borderRadius: "16px",
-              padding: "1.25rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.75rem",
-              transition: "transform 0.2s ease, border-color 0.2s ease",
-            }}
-            onMouseEnter={(e: MouseEvent<HTMLAnchorElement>) => {
-              e.currentTarget.style.transform = "translateY(-3px)";
-              e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)";
-            }}
-            onMouseLeave={(e: MouseEvent<HTMLAnchorElement>) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.borderColor = "var(--card-border)";
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: "1.05rem" }}>
-                {exercise.name}
-              </h3>
-            </div>
+        <div className="w-full text-center mb-8 sm:mb-10 border border-white/10 bg-white/3 p-6 sm:p-7">
+          <div className="mx-auto mb-4 inline-flex h-12 w-12 items-center justify-center border border-white/15 text-zinc-300">
+            <Dumbbell className="h-5 w-5" />
+          </div>
+          <h1 className="font-mono text-2xl sm:text-4xl font-bold uppercase tracking-tight">
+            Individual Workouts
+          </h1>
+          <p className="font-mono text-xs sm:text-sm text-zinc-400 leading-relaxed mt-3 mx-auto max-w-2xl">
+            Choose any exercise and train solo. Squats and push-ups use AI
+            camera tracking, while the others use quick manual logging.
+          </p>
+        </div>
 
-            <p
-              style={{
-                margin: 0,
-                fontSize: "0.9rem",
-                color: "#9ca3af",
-                lineHeight: 1.5,
-              }}
+        <div className="w-full grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
+          {exercises.map((exercise) => (
+            <Link
+              key={exercise.id}
+              href={`/feature2/solo/${exercise.id}`}
+              className="no-underline text-inherit border border-white/10 bg-white/3 p-5 flex flex-col gap-3 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/5 transition-all"
             >
-              {exercise.description}
-            </p>
+              <div className="flex items-center justify-between">
+                <h3 className="font-mono text-base font-bold uppercase tracking-tight text-white m-0">
+                  {exercise.name}
+                </h3>
+                <span className="font-mono text-[10px] uppercase tracking-widest px-2 py-1 border border-white/15 text-zinc-400">
+                  {exercise.tracking}
+                </span>
+              </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginTop: "0.3rem",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "0.75rem",
-                  color: "#64748b",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                }}
-              >
-                {exercise.category}
-              </span>
-              <span
-                style={{
-                  fontSize: "0.85rem",
-                  color: "#e2e8f0",
-                  fontWeight: "bold",
-                }}
-              >
-                Start →
-              </span>
-            </div>
-          </Link>
-        ))}
+              <p className="m-0 font-mono text-xs text-zinc-400 leading-relaxed">
+                {exercise.description}
+              </p>
+
+              <div className="flex justify-between items-center mt-1">
+                <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-widest">
+                  {exercise.category}
+                </span>
+                <span className="font-mono text-xs text-zinc-200 font-bold inline-flex items-center gap-1">
+                  Start <ChevronRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );

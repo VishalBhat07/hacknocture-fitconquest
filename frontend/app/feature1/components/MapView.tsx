@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import { Footprints, Bike, Flame, Trophy, Timer, Play, Square, MapPin } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import * as turf from "@turf/turf";
@@ -1185,48 +1186,57 @@ export default function MapView() {
   const loopCount = filtered.filter((a) => a.route.type === "Polygon").length;
   const lineCount = filtered.filter((a) => a.route.type === "LineString").length;
 
+  const secondsToReset = getSecondsUntilDayEnd(new Date());
+
   return (
-    <section className="feature1-map-shell" id="feature1-map">
-      <div className="feature1-map-controls">
-        <div className="map-top-bar">
-          <div className="feature1-map-overlay">
-            <div className="pulse-dot" />
-            <span>{isConquestMode ? 'Conquered Regions' : 'Activity Map'}</span>
+    <section className="map-fullscreen-shell" id="feature1-map">
+      {/* ═══ FULLSCREEN MAP ═══ */}
+      <div className="map-fullscreen-bg">
+        {isLoading && <div className="map-loading"><div className="map-loading-spinner" /><span>Loading map…</span></div>}
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+      </div>
+
+      {/* ═══ TOP CENTER: GPS Tracker ═══ */}
+      <div className="map-overlay-top-center">
+        <div className="map-tracker-bar">
+          <div className="map-tracker-bar-left">
+            <span className="map-tracker-bar-title">GPS Tracker</span>
+            <span className={`map-tracker-bar-chip ${isTracking ? "map-tracker-bar-chip--live" : ""}`}>
+              {isTracking ? "REC" : "READY"}
+            </span>
           </div>
-
-          <button 
-            className={`map-conquest-toggle ${isConquestMode ? 'active' : ''}`}
-            onClick={() => setIsConquestMode(!isConquestMode)}
-            title="Toggle Conquest Logic (Overlap Resolution)"
-          >
-            🔥 {isConquestMode ? 'Exit Conquest' : 'Conquest Mode'}
-          </button>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <div className="map-active-badge">
-              <span className="map-active-count">{loopCount}</span>
-              <span className="map-active-label">Regions</span>
+          <div className="map-tracker-bar-metrics">
+            <div className="map-tracker-bar-stat">
+              <span className="map-tracker-bar-stat-val">{fmtDist(trackingDistanceMeters)}</span>
+              <span className="map-tracker-bar-stat-label">Dist</span>
             </div>
-            <div className="map-active-badge">
-              <span className="map-active-count">{lineCount}</span>
-              <span className="map-active-label">Paths</span>
+            <div className="map-tracker-bar-divider" />
+            <div className="map-tracker-bar-stat">
+              <span className="map-tracker-bar-stat-val">{fmtDur(trackingDurationSeconds)}</span>
+              <span className="map-tracker-bar-stat-label">Time</span>
             </div>
           </div>
-
-          <Link className="map-leaderboard-link" href="/feature1/leaderboard">
-            🏆 Leaderboard
-          </Link>
-
-          {isConquestMode && (
-            <div className="map-leaderboard-link" style={{ display: "inline-flex", alignItems: "center", gap: 6 }} title="Time left for today's map window">
-              ⏳ {fmtCountdown(secondsToReset)}
-            </div>
-          )}
+          <div className="map-tracker-bar-actions">
+            {!isTracking ? (
+              <button type="button" onClick={startTracking} className="map-tracker-bar-btn map-tracker-bar-btn--start">
+                <Play className="w-3 h-3" /> Start {filter}
+              </button>
+            ) : (
+              <button type="button" onClick={stopAndSaveTracking} className="map-tracker-bar-btn map-tracker-bar-btn--stop">
+                <Square className="w-3 h-3" /> Stop &amp; Save
+              </button>
+            )}
+          </div>
         </div>
+        {trackerStatus && <div className="map-tracker-bar-status">{trackerStatus}</div>}
+      </div>
 
-        <div className="map-search-wrap">
-          <div className="map-search-box">
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search places in Bengaluru" aria-label="Search" />
+      {/* ═══ RIGHT SIDE: Controls Panel ═══ */}
+      <div className="map-overlay-right">
+        {/* Search */}
+        <div className="map-right-search">
+          <div className="map-right-search-box">
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search places…" aria-label="Search" />
             {searchQuery && <button type="button" className="map-search-clear" onClick={() => { setSearchQuery(""); setSearchSuggestions([]); }}>×</button>}
           </div>
           {(searchLoading || searchSuggestions.length > 0) && (
@@ -1239,118 +1249,102 @@ export default function MapView() {
           )}
         </div>
 
-        <div className="map-filter-wrap">
-          <div className="map-filter-group" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            {(["walk", "cycle"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                disabled={isTracking}
-                className={`map-filter-tab ${filter === t ? "map-filter-tab--active" : ""}`}
-                onClick={() => setFilter(t)}
-              >
-                {t === "walk" ? "🚶 By Walk" : "🚴 By Cycle"}
-              </button>
-            ))}
+        {/* Filter Tabs */}
+        <div className="map-right-filters">
+          {(["walk", "cycle"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              disabled={isTracking}
+              className={`map-right-filter-btn ${filter === t ? "map-right-filter-btn--active" : ""}`}
+              onClick={() => setFilter(t)}
+            >
+              {t === "walk" ? <><Footprints className="w-3.5 h-3.5 inline" /> Walk</> : <><Bike className="w-3.5 h-3.5 inline" /> Cycle</>}
+            </button>
+          ))}
+        </div>
+
+        {/* Conquest + Leaderboard + Badges */}
+        <div className="map-right-actions">
+          <button 
+            className={`map-right-action-btn ${isConquestMode ? 'map-right-action-btn--active' : ''}`}
+            onClick={() => setIsConquestMode(!isConquestMode)}
+          >
+            <Flame className="w-3.5 h-3.5 inline" /> {isConquestMode ? 'Exit Conquest' : 'Conquest'}
+          </button>
+          <Link className="map-right-action-btn" href="/feature1/leaderboard">
+            <Trophy className="w-3.5 h-3.5 inline" /> Leaderboard
+          </Link>
+        </div>
+
+        {isConquestMode && (
+          <div className="map-right-countdown">
+            <Timer className="w-3 h-3 inline" /> {fmtCountdown(secondsToReset)}
+          </div>
+        )}
+
+        {/* Badge Counts */}
+        <div className="map-right-badges">
+          <div className="map-right-badge">
+            <span className="map-right-badge-count">{loopCount}</span>
+            <span className="map-right-badge-label">Regions</span>
+          </div>
+          <div className="map-right-badge">
+            <span className="map-right-badge-count">{lineCount}</span>
+            <span className="map-right-badge-label">Paths</span>
           </div>
         </div>
 
-        <div className="map-tracker-wrap">
-          <div className="map-tracker-panel">
-            <div className="map-tracker-header">
-              <span className="map-tracker-title">Live GPS Tracker</span>
-              <span className={`map-tracker-chip ${isTracking ? "map-tracker-chip--live" : ""}`}>
-                {isTracking ? "Recording" : "Ready"}
-              </span>
-            </div>
-
-            <div className="map-tracker-actions-row">
-              {!isTracking ? (
-                <button
-                  type="button"
-                  onClick={startTracking}
-                  className="map-tracker-action-btn map-tracker-action-btn--start"
-                >
-                  ▶ Start {filter}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={stopAndSaveTracking}
-                  className="map-tracker-action-btn map-tracker-action-btn--stop"
-                >
-                  ■ Stop and Save
-                </button>
-              )}
-
-              <div className="map-tracker-metric-box">
-                <div className="map-tracker-metric-value">{fmtDist(trackingDistanceMeters)}</div>
-                <div className="map-tracker-metric-sub">{fmtDur(trackingDurationSeconds)}</div>
-              </div>
-            </div>
-
-            <div className="map-tracker-status">{trackerStatus}</div>
-          </div>
+        {/* Map Label */}
+        <div className="map-right-label">
+          <div className="map-right-label-dot" />
+          <span>{isConquestMode ? 'Conquest' : 'Activity Map'}</span>
         </div>
       </div>
 
-      <div className="feature1-map">
-        {isLoading && <div className="map-loading"><div className="map-loading-spinner" /><span>Loading map…</span></div>}
-        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
-      </div>
-
-      {/* Legend */}
+      {/* ═══ BOTTOM LEFT: Legend ═══ */}
       {userLegend.length > 0 && (
-        <div style={{
-          position: "absolute", bottom: 20, left: 20, zIndex: 1200, background: "rgba(10,10,15,0.9)",
-          backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16,
-          padding: "14px 16px", maxHeight: 250, overflowY: "auto", scrollbarWidth: "none", minWidth: 220,
-        }}>
-          <div style={{ fontSize: "0.63rem", fontWeight: 800, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-            Users
-          </div>
-          {userLegend.map((u, i) => (
-            <div key={u.username} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ width: 14, height: 14, borderRadius: 4, background: hexToRgba(u.color, 0.3), border: `2px solid ${u.color}`, flexShrink: 0 }} />
-              <span style={{ fontSize: "0.78rem", color: "#fff", fontWeight: 600, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.username}</span>
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                {u.loops > 0 && <span style={{ fontSize: "0.62rem", color: u.color, fontWeight: 700, padding: "1px 5px", background: hexToRgba(u.color, 0.1), borderRadius: 4 }}>{fmtArea(u.totalArea)}</span>}
-                {u.lines > 0 && <span style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.45)", fontWeight: 600 }}>{u.lines} path{u.lines > 1 ? "s" : ""}</span>}
+        <div className="map-overlay-legend">
+          <div className="map-legend-title">Users</div>
+          {userLegend.map((u) => (
+            <div key={u.username} className="map-legend-row">
+              <div className="map-legend-swatch" style={{ background: hexToRgba(u.color, 0.3), borderColor: u.color }} />
+              <span className="map-legend-name">{u.username}</span>
+              <div className="map-legend-stats">
+                {u.loops > 0 && <span style={{ color: u.color }}>{fmtArea(u.totalArea)}</span>}
+                {u.lines > 0 && <span>{u.lines} path{u.lines > 1 ? "s" : ""}</span>}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Detail card */}
+      {/* ═══ BOTTOM RIGHT: Detail Card ═══ */}
       {selectedActivity && (() => {
         const c = selectedActivity.userId?._id 
         ? getUserColor(selectedActivity.userId._id, userColorMapRef.current)
         : "#fff";
         const isLoop = selectedActivity.route.type === "Polygon";
         return (
-          <div style={{
-            position: "absolute", bottom: 20, right: 20, zIndex: 1200, background: "rgba(10,10,15,0.92)",
-            backdropFilter: "blur(16px)", border: `1px solid ${c}44`, borderRadius: 20, padding: "18px 20px", minWidth: 260, maxWidth: 340,
-          }}>
-            <button onClick={() => setSelectedActivity(null)} style={{ position: "absolute", top: 10, right: 14, background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: "1.6rem" }}>{actIcon(selectedActivity.activityType)}</span>
+          <div className="map-overlay-detail">
+            <button className="map-detail-close" onClick={() => setSelectedActivity(null)}>×</button>
+            <div className="map-detail-header">
+              <span className="map-detail-icon">{actIcon(selectedActivity.activityType)}</span>
               <div>
-                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{selectedActivity.userId?.username || "Unknown"}</div>
-                <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.45)" }}>
+                <div className="map-detail-user">{selectedActivity.userId?.username || "Unknown"}</div>
+                <div className="map-detail-meta">
                   {fmtDate(selectedActivity.startTime)} • {selectedActivity.activityType}
-                  <span style={{ marginLeft: 6, padding: "2px 6px", background: isLoop ? hexToRgba(c, 0.15) : "rgba(255,255,255,0.08)", borderRadius: 4, fontSize: "0.62rem", fontWeight: 700, color: isLoop ? c : "rgba(255,255,255,0.5)" }}>
+                  <span className="map-detail-type-tag" style={{ color: isLoop ? c : undefined }}>
                     {routeLabel(selectedActivity.route.type)}
                   </span>
                 </div>
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+            <div className="map-detail-grid">
               {isLoop && (
-                <div style={{ textAlign: "center", padding: "6px 4px", background: "rgba(255,255,255,0.03)", borderRadius: 10 }}>
-                  <div style={{ fontSize: "0.92rem", fontWeight: 700, color: c }}>{fmtArea(selectedActivity.areaSquareMeters)}</div>
-                  <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.35)", textTransform: "uppercase" }}>Area Covered</div>
+                <div className="map-detail-stat">
+                  <div className="map-detail-stat-val" style={{ color: c }}>{fmtArea(selectedActivity.areaSquareMeters)}</div>
+                  <div className="map-detail-stat-label">Area</div>
                 </div>
               )}
               {[
@@ -1358,15 +1352,13 @@ export default function MapView() {
                 { label: "Duration", value: fmtDur(selectedActivity.durationSeconds) },
                 { label: "Avg Speed", value: fmtSpeed(selectedActivity.avgSpeed) },
               ].map((s) => (
-                <div key={s.label} style={{ textAlign: "center", padding: "6px 4px", background: "rgba(255,255,255,0.03)", borderRadius: 10 }}>
-                  <div style={{ fontSize: "0.92rem", fontWeight: 700, color: c }}>{s.value}</div>
-                  <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.35)", textTransform: "uppercase" }}>{s.label}</div>
+                <div key={s.label} className="map-detail-stat">
+                  <div className="map-detail-stat-val" style={{ color: c }}>{s.value}</div>
+                  <div className="map-detail-stat-label">{s.label}</div>
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: "0.7rem", padding: "4px 8px", background: "rgba(255,255,255,0.05)", borderRadius: 6, color: "rgba(255,255,255,0.45)", textAlign: "center" }}>
-              Source: {selectedActivity.source}
-            </div>
+            <div className="map-detail-source">Source: {selectedActivity.source}</div>
           </div>
         );
       })()}

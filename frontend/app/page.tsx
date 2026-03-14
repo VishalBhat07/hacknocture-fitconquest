@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component as FlickeringFooter } from "@/components/ui/flickering-footer";
+import { Activity as ActivityIcon } from "lucide-react";
 
 type ActivityMode = "walk" | "cycle";
 
@@ -402,69 +404,61 @@ export default function Home() {
         )}
       </div>
 
-      <section className="home-dash" id="home-dashboard" style={{ position: "relative", zIndex: 1, maxWidth: 1160, margin: "0 auto", padding: "8.5rem 1.5rem 1.5rem" }}>
-        <div className="home-dash-header" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,0.7fr)", gap: "2rem", alignItems: "end", marginBottom: "1.75rem" }}>
-          <div>
-            <span className="hero-badge">Performance Dashboard</span>
-            <h1 style={{ fontSize: "clamp(2rem, 5vw, 3.4rem)", lineHeight: 1.08, letterSpacing: "-0.03em", marginBottom: "0.85rem" }}>
-              {user ? `Welcome back, ${user.username}` : "Conquer Your"}
-              <br />
-              <span className="gradient-text">Daily Momentum</span>
-            </h1>
-            <p style={{ maxWidth: 620, color: "rgba(255,255,255,0.6)", fontSize: "1rem", lineHeight: 1.7 }}>
-              Track your live movement score with day, week, month, and all-time distance in one command center.
-            </p>
+      <section className="home-dash min-h-[100dvh] flex items-center pt-24 pb-8" id="home-dashboard" style={{ position: "relative", zIndex: 1 }}>
+        <div className="max-w-7xl mx-auto w-full px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center flex-1">
+          {/* Left Text & Buttons */}
+          <div className="flex flex-col items-start gap-6 lg:pr-8">
+            <div className="w-full">
+              <span className="font-mono inline-block mb-4 px-4 py-1.5 border border-white/20 text-white text-sm font-bold tracking-widest uppercase">
+                Performance Dashboard
+              </span>
+              <h1 className="font-mono uppercase tracking-tighter text-white mb-5 font-bold" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)", lineHeight: 1.1 }}>
+                {user ? `Welcome back, ${user.username}` : "Conquer Your"}
+                <br />
+                <span className="text-zinc-500">Daily Momentum</span>
+              </h1>
+              <p className="font-mono text-zinc-400 max-w-[620px] text-lg leading-relaxed">
+                Track your live movement score with day, week, month, and all-time distance in one command center.
+              </p>
+            </div>
+            
+            <div className="flex flex-wrap gap-5 mt-4 w-full font-mono uppercase tracking-wider">
+              <Link href="/feature1" className="bg-white text-black px-8 py-4 font-bold text-base hover:bg-zinc-200 transition-colors">
+                Open Activity Map
+              </Link>
+              <Link href="/feature2" className="bg-transparent text-white border border-white/20 px-8 py-4 font-bold text-base hover:bg-white/10 transition-colors">
+                Open Squad Arena
+              </Link>
+            </div>
           </div>
-          <div className="home-dash-actions" style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: "0.8rem" }}>
-            <Link href="/feature1" className="home-dash-btn home-dash-btn--primary" style={{ textDecoration: "none", padding: "0.72rem 1.2rem", borderRadius: 12, fontWeight: 700 }}>Open Activity Map</Link>
-            <Link href="/feature2" className="home-dash-btn home-dash-btn--primary" style={{ textDecoration: "none", padding: "0.72rem 1.2rem", borderRadius: 12, fontWeight: 700 }}>Open Squad Arena</Link>
-          </div>
-        </div>
 
-        <div className="home-dash-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: "1rem" }}>
-          <article className="metric-card metric-card--today" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid rgba(99,102,241,0.35)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Walk Overall</p>
-            <h3>{loading ? "..." : formatDistance(stats.walkMeters)}</h3>
-            <span>Total walk distance</span>
-          </article>
-          <article className="metric-card" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid var(--card-border)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Cycle Overall</p>
-            <h3>{loading ? "..." : formatDistance(stats.cycleMeters)}</h3>
-            <span>Total cycle distance</span>
-          </article>
-          <article className="metric-card" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid var(--card-border)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Pushups Overall</p>
-            <h3>{loading ? "..." : formatCount(stats.totalPushups)}</h3>
-            <span>Total pushup reps</span>
-          </article>
-          <article className="metric-card metric-card--overall" style={{ background: "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", border: "1px solid rgba(6,182,212,0.35)", borderRadius: 18, padding: "1rem 1.1rem", minHeight: 128 }}>
-            <p>Squats Overall</p>
-            <h3>{loading ? "..." : formatCount(stats.totalSquats)}</h3>
-            <span>Total squat reps</span>
-          </article>
+          {/* Right 4 Grid Boxes */}
+          <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <article className="bg-white/5 border border-white/10 p-6 min-h-[160px] flex flex-col justify-between hover:border-white/30 transition-colors">
+              <p className="font-mono text-sm text-white/80 uppercase tracking-widest mb-2">Walk Overall</p>
+              <h3 className="font-mono text-4xl sm:text-5xl font-bold text-white my-2">{loading ? "..." : formatDistance(stats.walkMeters)}</h3>
+              <span className="font-mono text-xs text-zinc-500 uppercase tracking-wider">Total walk distance</span>
+            </article>
+            <article className="bg-white/5 border border-white/10 p-6 min-h-[160px] flex flex-col justify-between hover:border-white/30 transition-colors">
+              <p className="font-mono text-sm text-white/80 uppercase tracking-widest mb-2">Cycle Overall</p>
+              <h3 className="font-mono text-4xl sm:text-5xl font-bold text-white my-2">{loading ? "..." : formatDistance(stats.cycleMeters)}</h3>
+              <span className="font-mono text-xs text-zinc-500 uppercase tracking-wider">Total cycle distance</span>
+            </article>
+            <article className="bg-white/5 border border-white/10 p-6 min-h-[160px] flex flex-col justify-between hover:border-white/30 transition-colors">
+              <p className="font-mono text-sm text-white/80 uppercase tracking-widest mb-2">Pushups Overall</p>
+              <h3 className="font-mono text-4xl sm:text-5xl font-bold text-white my-2">{loading ? "..." : formatCount(stats.totalPushups)}</h3>
+              <span className="font-mono text-xs text-zinc-500 uppercase tracking-wider">Total pushup reps</span>
+            </article>
+            <article className="bg-white/5 border border-white/10 p-6 min-h-[160px] flex flex-col justify-between hover:border-white/30 transition-colors">
+              <p className="font-mono text-sm text-white/80 uppercase tracking-widest mb-2">Squats Overall</p>
+              <h3 className="font-mono text-4xl sm:text-5xl font-bold text-white my-2">{loading ? "..." : formatCount(stats.totalSquats)}</h3>
+              <span className="font-mono text-xs text-zinc-500 uppercase tracking-wider">Total squat reps</span>
+            </article>
+          </div>
         </div>
       </section>
 
-      <section className="features-section" id="features">
-        <span className="section-label">Explore</span>
-        <h2>Core Features</h2>
-
-        <div className="features-grid">
-          <Link href="/feature1" className="feature-card" id="feature-1-card">
-            <div className="card-icon">⚡</div>
-            <h3>Conquest Activity Map</h3>
-            <p>Visualize your territory, compare performance against other athletes, and dominate overlap zones in real time.</p>
-            <span className="card-arrow">Explore Feature 1 →</span>
-          </Link>
-
-          <Link href="/feature2" className="feature-card" id="feature-2-card">
-            <div className="card-icon">🎯</div>
-            <h3>Squad Challenge Arena</h3>
-            <p>Join teams, race on shared goals, and push your limits with live competition and leaderboard pressure.</p>
-            <span className="card-arrow">Explore Feature 2 →</span>
-          </Link>
-        </div>
-      </section>
+      <FlickeringFooter footerText="Discipline over motivation." />
     </>
   );
 }

@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { LogOut, Home, Lock } from "lucide-react";
 import dynamic from "next/dynamic";
 import "./feature1.css";
 
-// Leaflet requires `window` — dynamic import with SSR disabled
 const MapView = dynamic(() => import("./components/MapView"), {
   ssr: false,
   loading: () => (
@@ -70,69 +70,66 @@ export default function Feature1() {
     }
   };
 
-  // ── Not logged in: show login form ──────────────────────────────────────────
   if (!user) {
     return (
-      <div className="feature-page feature-1-page" id="feature-1-page" style={{ minHeight: '80vh', padding: '10rem 2rem' }}>
-        <div className="content-card" style={{ margin: '0 auto', textAlign: 'center' }}>
-          <h2>Login for Activity Map</h2>
-          <form onSubmit={login} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
-            <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={{ padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }} />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={{ padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }} />
-            <button type="submit" style={{ padding: '0.8rem', borderRadius: '8px', background: 'var(--accent-1)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Login</button>
+      <div className="min-h-screen bg-black flex items-center justify-center px-6 pt-20">
+        <div className="w-full max-w-md border border-white/10 p-8 relative">
+          <div className="absolute top-0 left-0 w-3 h-3 border-t border-l border-white/40" />
+          <div className="absolute top-0 right-0 w-3 h-3 border-t border-r border-white/40" />
+          <div className="absolute bottom-0 left-0 w-3 h-3 border-b border-l border-white/40" />
+          <div className="absolute bottom-0 right-0 w-3 h-3 border-b border-r border-white/40" />
+          
+          <div className="flex items-center gap-2 mb-2">
+            <Lock className="w-4 h-4 text-zinc-500" />
+            <h2 className="font-mono text-xl sm:text-2xl font-bold text-white uppercase tracking-tighter">Activity Map</h2>
+          </div>
+          <p className="font-mono text-xs text-zinc-500 uppercase tracking-widest mb-8">Authentication Required</p>
+          
+          <form onSubmit={login} className="flex flex-col gap-4">
+            <input 
+              type="text" 
+              value={username} 
+              onChange={e => setUsername(e.target.value)} 
+              placeholder="Username" 
+              className="font-mono w-full px-4 py-3 bg-white/5 border border-white/10 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-white/30 transition-colors" 
+            />
+            <input 
+              type="password" 
+              value={password} 
+              onChange={e => setPassword(e.target.value)} 
+              placeholder="Password" 
+              className="font-mono w-full px-4 py-3 bg-white/5 border border-white/10 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-white/30 transition-colors" 
+            />
+            <button 
+              type="submit" 
+              className="font-mono w-full py-3 bg-white text-black font-bold text-sm uppercase tracking-widest hover:bg-zinc-200 transition-colors cursor-pointer"
+            >
+              Login
+            </button>
           </form>
-          <p style={{ marginTop: '1rem', color: '#888', fontSize: '0.9rem' }}>Demo users: vishal, arjun, priya, rahul<br />Password: password123</p>
+          
+          <p className="font-mono mt-6 text-xs text-zinc-500 leading-relaxed">
+            Demo users: vishal, arjun, priya, rahul<br />Password: password123
+          </p>
         </div>
       </div>
     );
   }
 
-  // ── Logged in: full-screen map view ─────────────────────────────────────────
-  // Use feature1-container so the CSS height:100vh + flex layout works properly
   return (
     <div className="feature1-container" id="feature-1-page">
-      {/* Top bar with user info + logout — sits above the map controls */}
-      <div style={{
-        position: 'absolute',
-        top: 60,
-        right: 20,
-        zIndex: 1300,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem'
-      }}>
-        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
-          👤 {user.username}
-        </span>
+      {/* Top-left: small user chip overlayed on the map */}
+      <div className="map-overlay-user-chip">
+        <span className="map-user-chip-name">{user.username}</span>
         <button
           onClick={() => { localStorage.removeItem("fit_token"); setUser(null); }}
-          style={{
-            padding: '0.5rem 1rem',
-            background: 'rgba(255,100,100,0.12)',
-            borderRadius: '10px',
-            color: '#ff8888',
-            border: '1px solid rgba(255,100,100,0.25)',
-            cursor: 'pointer',
-            fontSize: '0.78rem',
-            fontWeight: 700
-          }}
+          className="map-user-chip-btn"
+          title="Logout"
         >
-          Logout
+          <LogOut className="w-3 h-3" />
         </button>
-        <Link
-          href="/"
-          style={{
-            padding: '0.5rem 1rem',
-            background: 'rgba(255,255,255,0.05)',
-            borderRadius: '10px',
-            color: 'rgba(255,255,255,0.6)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            textDecoration: 'none',
-            fontSize: '0.78rem',
-            fontWeight: 700
-          }}
-        >
-          ← Home
+        <Link href="/" className="map-user-chip-btn" title="Home">
+          <Home className="w-3 h-3" />
         </Link>
       </div>
 

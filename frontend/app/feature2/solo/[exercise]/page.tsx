@@ -129,20 +129,18 @@ export default function SoloExercisePage({
 
   if (!config) {
     return (
-      <div
-        className="feature-page"
-        style={{ padding: "8rem 5% 4rem", textAlign: "center" }}
-      >
-        <h1>Exercise not found</h1>
-        <p style={{ color: "#94a3b8", marginTop: "0.5rem" }}>
+      <div className="min-h-screen bg-black text-white px-4 sm:px-6 lg:px-8 pt-24 pb-14 text-center">
+        <h1 className="font-mono text-2xl sm:text-4xl font-bold uppercase tracking-tight">
+          Exercise not found
+        </h1>
+        <p className="font-mono text-xs sm:text-sm text-zinc-400 mt-2">
           Choose a valid exercise from the solo section.
         </p>
         <Link
           href="/feature2/solo"
-          className="back-link"
-          style={{ marginTop: "1.5rem", display: "inline-block" }}
+          className="inline-flex items-center font-mono text-xs font-bold text-zinc-300 border border-white/15 px-4 py-2 uppercase tracking-widest hover:text-white hover:border-white/35 transition-colors no-underline mt-6"
         >
-          ← Back to Individual Workouts
+          Back to Individual Workouts
         </Link>
       </div>
     );
@@ -224,217 +222,320 @@ export default function SoloExercisePage({
   };
 
   return (
-    <div
-      className="feature-page"
-      style={{ padding: "8rem 5% 4rem", alignItems: "flex-start" }}
-    >
-      <Link
-        href="/feature2/solo"
-        className="back-link"
-        style={{ marginBottom: "1.5rem" }}
-      >
-        ← Back to Individual Workouts
-      </Link>
-
-      <div
-        style={{
-          width: "100%",
-          maxWidth: "920px",
-          margin: "0 auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: "1.25rem",
-        }}
-      >
-        <div
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--card-border)",
-            borderRadius: "18px",
-            padding: "1.4rem",
-          }}
+    <div className="min-h-screen bg-black text-white px-4 sm:px-6 lg:px-8 pt-24 pb-14">
+      <div className="mx-auto w-full max-w-5xl">
+        <Link
+          href="/feature2/solo"
+          className="inline-flex items-center font-mono text-xs font-bold text-zinc-300 border border-white/15 px-4 py-2 uppercase tracking-widest hover:text-white hover:border-white/35 transition-colors no-underline mb-6"
         >
-          <h1 style={{ marginBottom: "0.5rem" }}>{config.name}</h1>
-          <p style={{ color: "#94a3b8", lineHeight: 1.55 }}>{config.tips}</p>
-        </div>
+          Back to Individual Workouts
+        </Link>
 
-        <div
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--card-border)",
-            borderRadius: "18px",
-            padding: "1.4rem",
-          }}
-        >
-          {config.tracking === "ai" ? (
-            <>
-              {!cameraActive ? (
-                <button
-                  onClick={startAiSession}
-                  style={{
-                    padding: "0.8rem 1.2rem",
-                    borderRadius: "10px",
-                    border: "none",
-                    fontWeight: "bold",
-                    color: "#fff",
-                    background: "linear-gradient(135deg, #6366f1, #22d3ee)",
-                    cursor: "pointer",
-                  }}
-                >
-                  Start AI Session
-                </button>
-              ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                  }}
-                >
-                  <div
+        <div className="w-full max-w-5xl mx-auto flex flex-col gap-5">
+          <div
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "14px",
+              padding: "1.1rem 1.2rem",
+            }}
+          >
+            <h1
+              style={{
+                marginBottom: "0.45rem",
+                fontFamily: "var(--font-geist-mono), monospace",
+                fontSize: "1.45rem",
+                textTransform: "uppercase",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {config.name}
+            </h1>
+            <p
+              style={{
+                color: "#a1a1aa",
+                lineHeight: 1.55,
+                fontFamily: "var(--font-geist-mono), monospace",
+                fontSize: "0.8rem",
+              }}
+            >
+              {config.tips}
+            </p>
+          </div>
+
+          <div
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "14px",
+              padding: "1.1rem 1.2rem",
+            }}
+          >
+            {config.tracking === "ai" ? (
+              <>
+                {!cameraActive ? (
+                  <button
+                    onClick={startAiSession}
                     style={{
-                      borderRadius: "14px",
-                      overflow: "hidden",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      background: "#000",
+                      padding: "0.7rem 1.05rem",
+                      borderRadius: "8px",
+                      border: "none",
+                      fontWeight: 800,
+                      color: "#04121a",
+                      background: "linear-gradient(135deg, #67e8f9, #22d3ee)",
+                      cursor: "pointer",
+                      fontFamily: "var(--font-geist-mono), monospace",
+                      textTransform: "uppercase",
+                      fontSize: "0.72rem",
                     }}
                   >
-                    {config.id === "pushup" ? (
-                      <PushupTracker
-                        isPaused={false}
-                        onRep={(n) => handleAiRep(n)}
-                        onStatsUpdate={(stats) => setAiStats(stats)}
-                      />
-                    ) : (
-                      <SquatTracker
-                        isPaused={false}
-                        onRep={(n) => handleAiRep(n)}
-                        onStatsUpdate={(stats) => setAiStats(stats)}
-                      />
-                    )}
-                  </div>
-
+                    Start AI Session
+                  </button>
+                ) : (
                   <div
                     style={{
                       display: "flex",
-                      gap: "0.75rem",
-                      flexWrap: "wrap",
+                      flexDirection: "column",
+                      gap: "1rem",
                     }}
                   >
                     <div
                       style={{
-                        padding: "0.7rem 1rem",
-                        borderRadius: "10px",
-                        background: "rgba(99,102,241,0.1)",
-                        border: "1px solid rgba(99,102,241,0.25)",
+                        borderRadius: "14px",
+                        overflow: "hidden",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: "#000",
                       }}
                     >
-                      <strong style={{ color: "#818cf8", fontSize: "1.3rem" }}>
-                        {sessionReps}
-                      </strong>
-                      <span
-                        style={{
-                          marginLeft: "0.4rem",
-                          color: "#cbd5e1",
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        reps
-                      </span>
+                      {config.id === "pushup" ? (
+                        <PushupTracker
+                          isPaused={false}
+                          onRep={(n) => handleAiRep(n)}
+                          onStatsUpdate={(stats) => setAiStats(stats)}
+                        />
+                      ) : (
+                        <SquatTracker
+                          isPaused={false}
+                          onRep={(n) => handleAiRep(n)}
+                          onStatsUpdate={(stats) => setAiStats(stats)}
+                        />
+                      )}
                     </div>
-                    <div
-                      style={{
-                        padding: "0.7rem 1rem",
-                        borderRadius: "10px",
-                        background: "rgba(6,182,212,0.1)",
-                        border: "1px solid rgba(6,182,212,0.25)",
-                      }}
-                    >
-                      <strong style={{ color: "#22d3ee", fontSize: "1.3rem" }}>
-                        {formatSeconds(aiElapsedSec)}
-                      </strong>
-                      <span
-                        style={{
-                          marginLeft: "0.4rem",
-                          color: "#cbd5e1",
-                          fontSize: "0.85rem",
-                        }}
-                      >
-                        time
-                      </span>
-                    </div>
-                    <button
-                      onClick={stopAiSession}
-                      style={{
-                        marginLeft: "auto",
-                        padding: "0.65rem 1rem",
-                        borderRadius: "10px",
-                        border: "1px solid rgba(255,80,80,0.35)",
-                        background: "rgba(255,80,80,0.15)",
-                        color: "#fda4af",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Stop Session
-                    </button>
-                  </div>
 
-                  {feedbackLines.length > 0 && (
                     <div
                       style={{
-                        padding: "0.8rem",
-                        borderRadius: "10px",
-                        background: "rgba(255,255,255,0.03)",
-                        border: "1px solid rgba(255,255,255,0.08)",
+                        display: "flex",
+                        gap: "0.75rem",
+                        flexWrap: "wrap",
                       }}
                     >
-                      {feedbackLines.map((line: string, idx: number) => (
-                        <p
-                          key={`${line}-${idx}`}
+                      <div
+                        style={{
+                          padding: "0.7rem 1rem",
+                          borderRadius: "10px",
+                          background: "rgba(99,102,241,0.1)",
+                          border: "1px solid rgba(99,102,241,0.25)",
+                        }}
+                      >
+                        <strong
+                          style={{ color: "#818cf8", fontSize: "1.3rem" }}
+                        >
+                          {sessionReps}
+                        </strong>
+                        <span
                           style={{
-                            margin: "0.2rem 0",
-                            color: "#fbbf24",
+                            marginLeft: "0.4rem",
+                            color: "#cbd5e1",
                             fontSize: "0.85rem",
                           }}
                         >
-                          {line}
-                        </p>
-                      ))}
+                          reps
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          padding: "0.7rem 1rem",
+                          borderRadius: "10px",
+                          background: "rgba(6,182,212,0.1)",
+                          border: "1px solid rgba(6,182,212,0.25)",
+                        }}
+                      >
+                        <strong
+                          style={{ color: "#22d3ee", fontSize: "1.3rem" }}
+                        >
+                          {formatSeconds(aiElapsedSec)}
+                        </strong>
+                        <span
+                          style={{
+                            marginLeft: "0.4rem",
+                            color: "#cbd5e1",
+                            fontSize: "0.85rem",
+                          }}
+                        >
+                          time
+                        </span>
+                      </div>
+                      <button
+                        onClick={stopAiSession}
+                        style={{
+                          marginLeft: "auto",
+                          padding: "0.65rem 1rem",
+                          borderRadius: "10px",
+                          border: "1px solid rgba(255,80,80,0.35)",
+                          background: "rgba(255,80,80,0.15)",
+                          color: "#fda4af",
+                          fontWeight: "bold",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Stop Session
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {isPlank ? (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "2.1rem",
-                      fontWeight: "bold",
-                      color: "#f8fafc",
-                    }}
-                  >
-                    {formatSeconds(elapsedSec)}
+
+                    {feedbackLines.length > 0 && (
+                      <div
+                        style={{
+                          padding: "0.8rem",
+                          borderRadius: "10px",
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        {feedbackLines.map((line: string, idx: number) => (
+                          <p
+                            key={`${line}-${idx}`}
+                            style={{
+                              margin: "0.2rem 0",
+                              color: "#fbbf24",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            {line}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
+                )}
+              </>
+            ) : (
+              <>
+                {isPlank ? (
                   <div
                     style={{
                       display: "flex",
-                      gap: "0.75rem",
-                      flexWrap: "wrap",
+                      flexDirection: "column",
+                      gap: "1rem",
                     }}
                   >
-                    {!timerRunning ? (
+                    <div
+                      style={{
+                        fontSize: "2.1rem",
+                        fontWeight: "bold",
+                        color: "#f8fafc",
+                      }}
+                    >
+                      {formatSeconds(elapsedSec)}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "0.75rem",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {!timerRunning ? (
+                        <button
+                          onClick={() => setTimerRunning(true)}
+                          style={{
+                            padding: "0.65rem 1.1rem",
+                            borderRadius: "10px",
+                            border: "none",
+                            background: "#22c55e",
+                            color: "#052e16",
+                            fontWeight: "bold",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Start Timer
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setTimerRunning(false)}
+                          style={{
+                            padding: "0.65rem 1.1rem",
+                            borderRadius: "10px",
+                            border: "none",
+                            background: "#f59e0b",
+                            color: "#1f2937",
+                            fontWeight: "bold",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Pause Timer
+                        </button>
+                      )}
                       <button
-                        onClick={() => setTimerRunning(true)}
+                        onClick={() => {
+                          setTimerRunning(false);
+                          setElapsedSec(0);
+                        }}
+                        style={{
+                          padding: "0.65rem 1.1rem",
+                          borderRadius: "10px",
+                          border: "1px solid rgba(255,255,255,0.2)",
+                          background: "transparent",
+                          color: "#cbd5e1",
+                          fontWeight: "bold",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "1rem",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "2.1rem",
+                        fontWeight: "bold",
+                        color: "#f8fafc",
+                      }}
+                    >
+                      {manualCount} reps
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "0.75rem",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        onClick={() =>
+                          setManualCount((value) => Math.max(0, value - 1))
+                        }
+                        style={{
+                          padding: "0.65rem 1.1rem",
+                          borderRadius: "10px",
+                          border: "1px solid rgba(255,255,255,0.2)",
+                          background: "transparent",
+                          color: "#cbd5e1",
+                          fontWeight: "bold",
+                          cursor: "pointer",
+                        }}
+                      >
+                        -1 Rep
+                      </button>
+                      <button
+                        onClick={() => setManualCount((value) => value + 1)}
                         style={{
                           padding: "0.65rem 1.1rem",
                           borderRadius: "10px",
@@ -445,155 +546,70 @@ export default function SoloExercisePage({
                           cursor: "pointer",
                         }}
                       >
-                        Start Timer
+                        +1 Rep
                       </button>
-                    ) : (
                       <button
-                        onClick={() => setTimerRunning(false)}
+                        onClick={() => setManualCount((value) => value + 5)}
                         style={{
                           padding: "0.65rem 1.1rem",
                           borderRadius: "10px",
                           border: "none",
-                          background: "#f59e0b",
-                          color: "#1f2937",
+                          background: "#06b6d4",
+                          color: "#083344",
                           fontWeight: "bold",
                           cursor: "pointer",
                         }}
                       >
-                        Pause Timer
+                        +5 Reps
                       </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setTimerRunning(false);
-                        setElapsedSec(0);
-                      }}
-                      style={{
-                        padding: "0.65rem 1.1rem",
-                        borderRadius: "10px",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        background: "transparent",
-                        color: "#cbd5e1",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Reset
-                    </button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "2.1rem",
-                      fontWeight: "bold",
-                      color: "#f8fafc",
-                    }}
-                  >
-                    {manualCount} reps
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "0.75rem",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <button
-                      onClick={() =>
-                        setManualCount((value) => Math.max(0, value - 1))
-                      }
-                      style={{
-                        padding: "0.65rem 1.1rem",
-                        borderRadius: "10px",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        background: "transparent",
-                        color: "#cbd5e1",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                      }}
-                    >
-                      -1 Rep
-                    </button>
-                    <button
-                      onClick={() => setManualCount((value) => value + 1)}
-                      style={{
-                        padding: "0.65rem 1.1rem",
-                        borderRadius: "10px",
-                        border: "none",
-                        background: "#22c55e",
-                        color: "#052e16",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                      }}
-                    >
-                      +1 Rep
-                    </button>
-                    <button
-                      onClick={() => setManualCount((value) => value + 5)}
-                      style={{
-                        padding: "0.65rem 1.1rem",
-                        borderRadius: "10px",
-                        border: "none",
-                        background: "#06b6d4",
-                        color: "#083344",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                      }}
-                    >
-                      +5 Reps
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
 
-          <div
-            style={{
-              marginTop: "1.2rem",
-              display: "flex",
-              gap: "0.75rem",
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              onClick={saveSession}
-              disabled={saving}
+            <div
               style={{
-                padding: "0.72rem 1.2rem",
-                borderRadius: "10px",
-                border: "none",
-                background: "linear-gradient(135deg, #6366f1, #818cf8)",
-                color: "#fff",
-                fontWeight: "bold",
-                cursor: saving ? "not-allowed" : "pointer",
-                opacity: saving ? 0.7 : 1,
+                marginTop: "1.2rem",
+                display: "flex",
+                gap: "0.75rem",
+                alignItems: "center",
+                flexWrap: "wrap",
               }}
             >
-              {saving ? "Saving..." : "Finish and Save Session"}
-            </button>
-
-            {saveMessage && (
-              <span
+              <button
+                onClick={saveSession}
+                disabled={saving}
                 style={{
-                  color: saveMessage.includes("successfully")
-                    ? "#4ade80"
-                    : "#fda4af",
-                  fontSize: "0.9rem",
+                  padding: "0.68rem 1.1rem",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "linear-gradient(135deg, #fef08a, #facc15)",
+                  color: "#111827",
+                  fontWeight: 800,
+                  cursor: saving ? "not-allowed" : "pointer",
+                  opacity: saving ? 0.7 : 1,
+                  fontFamily: "var(--font-geist-mono), monospace",
+                  textTransform: "uppercase",
+                  fontSize: "0.72rem",
                 }}
               >
-                {saveMessage}
-              </span>
-            )}
+                {saving ? "Saving..." : "Finish and Save Session"}
+              </button>
+
+              {saveMessage && (
+                <span
+                  style={{
+                    color: saveMessage.includes("successfully")
+                      ? "#4ade80"
+                      : "#fda4af",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {saveMessage}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
