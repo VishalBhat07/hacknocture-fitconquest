@@ -164,7 +164,7 @@ export default function Home() {
         }
 
         setSyncState("done");
-        setSyncMessage(`Strava sync complete: ${out.imported ?? 0} imported, ${out.skipped ?? 0} skipped.`);
+        setSyncMessage(`Strava sync complete: ${out?.imported ?? 0} imported, ${out?.skipped ?? 0} skipped.`);
 
         const clean = new URL(window.location.href);
         clean.searchParams.delete("code");
